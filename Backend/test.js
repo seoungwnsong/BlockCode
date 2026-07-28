@@ -2,7 +2,7 @@
 // Run with:  node test.js
 // Exits non-zero if anything fails, so it can gate a commit.
 
-const { runProgram } = require('./interpreter');
+const { runProgram, validateName } = require('./interpreter');
 const { parse } = require('./parser');
 
 let pass = 0, fail = 0;
@@ -558,6 +558,137 @@ t('G1  a parameter wins over a same-named global inside the body',
       { id: 1, type: 'variable', name: 'x', value: lit('int', 42) },
       { id: 2, type: 'call', name: 'echo', args: [lit('int', 7)] }] },
   (r, e) => { noErr(e); eq(r.output[0], '7', 'param shadows global'); });
+
+// ===========================================================================
+// #26  Variable naming rules — illegal identifiers are a build-time SyntaxError,
+//      with Python's wording, exactly as CPython rejects them at compile time.
+// ===========================================================================
+
+// The validator in isolation, one case per rule.
+raw('#26  validator: a bare number is a literal', () => {
+    let m = ''; try { validateName('5'); } catch (e) { m = e.name + ':' + e.message; }
+    if (m !== 'SyntaxError:cannot assign to literal') throw new Error(`got ${m}`);
+});
+raw('#26  validator: a name cannot start with a digit', () => {
+    let m = ''; try { validateName('1x'); } catch (e) { m = e.name + ':' + e.message; }
+    if (m !== 'SyntaxError:invalid decimal literal') throw new Error(`got ${m}`);
+});
+raw('#26  validator: a reserved keyword is invalid syntax', () => {
+    let m = ''; try { validateName('for'); } catch (e) { m = e.name + ':' + e.message; }
+    if (m !== 'SyntaxError:invalid syntax') throw new Error(`got ${m}`);
+});
+raw('#26  validator: a constant reports "cannot assign to X"', () => {
+    let m = ''; try { validateName('True'); } catch (e) { m = e.name + ':' + e.message; }
+    if (m !== 'SyntaxError:cannot assign to True') throw new Error(`got ${m}`);
+});
+raw('#26  validator: the language\'s lowercase booleans are literals too', () => {
+    let m = ''; try { validateName('true'); } catch (e) { m = e.name + ':' + e.message; }
+    if (m !== 'SyntaxError:cannot assign to true') throw new Error(`got ${m}`);
+});
+raw('#26  validator: a stray character is invalid syntax', () => {
+    for (const bad of ['a-b', 'my var', 'x!']) {
+        let m = ''; try { validateName(bad); } catch (e) { m = e.name + ':' + e.message; }
+        if (m !== 'SyntaxError:invalid syntax') throw new Error(`${bad} -> ${m}`);
+    }
+});
+raw('#26  validator: legal identifiers pass', () => {
+    for (const ok of ['x', '_x', 'x9', 'myVar', '__dunder__', 'For', 'TRUE']) {
+        validateName(ok); // must not throw (keywords are case-sensitive)
+    }
+});
+
+t('#26  an illegal assignment target halts with SyntaxError',
+  { blocks: [{ id: 1, type: 'variable', name: '1x', value: lit('int', 5) }] },
+  (r) => {
+      const e = r.results.find(x => x.id === 1);
+      if (!e || e.status !== 'error') throw new Error('expected an error result');
+      if (e.errorType !== 'SyntaxError') throw new Error(`errorType ${e.errorType}`);
+      if (!/invalid decimal literal/.test(e.message)) throw new Error(`message ${e.message}`);
+  });
+
+t('#26  assigning to a keyword is rejected',
+  { blocks: [{ id: 1, type: 'assign', name: 'while', value: lit('int', 1) }] },
+  (r) => {
+      const e = r.results.find(x => x.id === 1);
+      if (!e || e.errorType !== 'SyntaxError' || !/invalid syntax/.test(e.message)) {
+          throw new Error(`unexpected: ${JSON.stringify(e)}`);
+      }
+  });
+
+t('#26  a parallel-assignment target follows the same rules',
+  { blocks: [{ id: 1, type: 'parallelAssign', targets: ['ok', '2bad'], values: [lit('int', 1), lit('int', 2)] }] },
+  (r, e) => { if (!e.length || !/invalid decimal literal/.test(e[0].message)) throw new Error('expected name error'); });
+
+t('#26  a for-loop variable follows the same rules',
+  { blocks: [{ id: 1, type: 'for', variable: 'True', start: lit('int', 0), end: lit('int', 3), children: [] }] },
+  (r, e) => { if (!e.length || !/cannot assign to True/.test(e[0].message)) throw new Error('expected name error'); });
+
+t('#26  an illegal function name fails at definition time',
+  { functions: [{ id: 99, type: 'def', name: 'def', params: [], children: [] }], blocks: [] },
+  (r) => {
+      const e = r.results.find(x => x.id === 99);
+      if (!e || e.errorType !== 'SyntaxError' || !/invalid syntax/.test(e.message)) {
+          throw new Error(`unexpected: ${JSON.stringify(e)}`);
+      }
+  });
+
+t('#26  an illegal parameter name fails at definition time',
+  { functions: [{ id: 99, type: 'def', name: 'ok', params: ['1st'], children: [] }], blocks: [] },
+  (r, e) => { if (!e.length || !/invalid decimal literal/.test(e[0].message)) throw new Error('expected param error'); });
+
+t('#26  a legal name still works end-to-end',
+  { blocks: [{ id: 1, type: 'variable', name: '_total9', value: lit('int', 5) }] },
+  (r, e) => { noErr(e); eq(r.variables._total9, 5, '_total9'); });
+
+// ===========================================================================
+// #27  Invalid references in a value slot — Python splits these two ways:
+//      a syntactically illegal name is a build-time SyntaxError; a valid but
+//      undefined name is a runtime NameError.
+// ===========================================================================
+
+t('#27  assigning from an undefined variable is a NameError',
+  { blocks: [{ id: 1, type: 'variable', name: 'x', value: ref('y') }] },
+  (r) => {
+      const e = r.results.find(x => x.id === 1);
+      if (!e || e.errorType !== 'NameError' || !/name 'y' is not defined/.test(e.message)) {
+          throw new Error(`unexpected: ${JSON.stringify(e)}`);
+      }
+  });
+
+t('#27  a digit-start reference name is a SyntaxError',
+  { blocks: [{ id: 1, type: 'variable', name: 'x', value: ref('1y') }] },
+  (r) => {
+      const e = r.results.find(x => x.id === 1);
+      if (!e || e.errorType !== 'SyntaxError' || !/invalid decimal literal/.test(e.message)) {
+          throw new Error(`unexpected: ${JSON.stringify(e)}`);
+      }
+  });
+
+t('#27  a reference with a stray character is a SyntaxError',
+  { blocks: [{ id: 1, type: 'variable', name: 'x', value: ref('a-b') }] },
+  (r, e) => { if (!e.length || e[0].errorType !== 'SyntaxError' || !/invalid syntax/.test(e[0].message)) throw new Error('expected syntax error'); });
+
+t('#27  a keyword used as a reference is a SyntaxError',
+  { blocks: [{ id: 1, type: 'variable', name: 'x', value: ref('for') }] },
+  (r, e) => { if (!e.length || e[0].errorType !== 'SyntaxError' || !/invalid syntax/.test(e[0].message)) throw new Error('expected syntax error'); });
+
+t('#27  an invalid reference in a condition is caught too',
+  { blocks: [{ id: 1, type: 'if', condition: ref('1x'), children: [], elseChildren: [] }] },
+  (r, e) => { if (!e.length || e[0].errorType !== 'SyntaxError' || !/invalid decimal literal/.test(e[0].message)) throw new Error('expected syntax error'); });
+
+t('#27  a bad reference inside a print is caught',
+  { blocks: [{ id: 1, type: 'print', value: ref('my var') }] },
+  (r, e) => { if (!e.length || e[0].errorType !== 'SyntaxError') throw new Error('expected syntax error'); });
+
+t('#27  a syntactically broken expression string is a SyntaxError',
+  { blocks: [{ id: 1, type: 'variable', name: 'x', value: { type: 'expression', value: 'a b c' } }] },
+  (r, e) => { if (!e.length || e[0].errorType !== 'SyntaxError') throw new Error('expected syntax error'); });
+
+t('#27  a valid reference to a defined variable still works',
+  { blocks: [
+      { id: 1, type: 'variable', name: 'y', value: lit('int', 9) },
+      { id: 2, type: 'variable', name: 'x', value: ref('y') }] },
+  (r, e) => { noErr(e); eq(r.variables.x, 9, 'x = y'); });
 
 // ===========================================================================
 console.log(`\n${pass} passed, ${fail} failed`);

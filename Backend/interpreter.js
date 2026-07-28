@@ -8,6 +8,98 @@ const { UserFunction, Return, Call } = require('./function');   // #11, #12, #13
 const { NameError, ValueError } = require('./errors');          // B4
 
 // ---------------------------------------------------------------------------
+// Identifier rules
+// ---------------------------------------------------------------------------
+// #26: every name the program BINDS — assignment targets, parallel-assignment
+// targets, loop variables, a catch's error name, function names and their
+// parameters — must be a legal identifier. Python decides this at compile time
+// and raises SyntaxError before a single statement runs, so the check lives in
+// the build phase (toStmt / def registration), not at evaluate time. Reads of a
+// name are left alone: an undefined name is still a runtime NameError.
+//
+// The messages mirror CPython 3.10+ for each category. SyntaxError is used
+// throughout — its `.name` already reads "SyntaxError", the same convention
+// parser.js relies on, so it surfaces cleanly as `errorType` to the frontend.
+
+// Python's reserved words (keyword.kwlist) plus this language's own literal
+// words (its booleans are written lowercase, so `true`/`false` are literals
+// here just as `True`/`False` are in Python). None may name a variable.
+const RESERVED = new Set([
+    'False', 'None', 'True', 'and', 'as', 'assert', 'async', 'await',
+    'break', 'class', 'continue', 'def', 'del', 'elif', 'else', 'except',
+    'finally', 'for', 'from', 'global', 'if', 'import', 'in', 'is',
+    'lambda', 'nonlocal', 'not', 'or', 'pass', 'raise', 'return', 'try',
+    'while', 'with', 'yield',
+    'true', 'false', 'none',
+]);
+
+// The subset that names a VALUE. Python words these apart from other keywords:
+//   True = 1  ->  "cannot assign to True"   (a constant)
+//   for  = 1  ->  "invalid syntax"          (a plain keyword)
+const CONSTANT_WORDS = new Set(['True', 'False', 'None', 'true', 'false', 'none']);
+
+// ASCII identifier, matching parser.js's own tokenizer ([A-Za-z_][A-Za-z0-9_]*).
+const IDENTIFIER   = /^[A-Za-z_][A-Za-z0-9_]*$/;
+// A name that is wholly a number: 5, 42, 3.14, .5
+const NUMBER_NAME  = /^(\d+\.?\d*|\.\d+)$/;
+
+// Throws SyntaxError if `name` is not a legal identifier; returns it otherwise.
+// `what` only shapes the empty-name wording (e.g. "parameter", "variable").
+function validateName(name, what = 'variable') {
+    if (typeof name !== 'string' || name.trim() === '') {
+        throw new SyntaxError(`${what} name cannot be empty`);
+    }
+    // A bare number is a literal:  5 = 1  ->  "cannot assign to literal"
+    if (NUMBER_NAME.test(name)) {
+        throw new SyntaxError('cannot assign to literal');
+    }
+    // Starts with a digit but isn't a clean number (e.g. 1st): CPython reads it
+    // as a malformed number token.
+    if (/^[0-9]/.test(name)) {
+        throw new SyntaxError('invalid decimal literal');
+    }
+    // Constants get their own message; other keywords are just "invalid syntax".
+    if (CONSTANT_WORDS.has(name)) {
+        throw new SyntaxError(`cannot assign to ${name}`);
+    }
+    if (RESERVED.has(name)) {
+        throw new SyntaxError('invalid syntax');
+    }
+    // Anything left over has a stray character or a space.
+    if (!IDENTIFIER.test(name)) {
+        throw new SyntaxError('invalid syntax');
+    }
+    return name;
+}
+
+// #27: the read-side counterpart. A name that APPEARS IN A VALUE SLOT (a
+// variable read on the right of `=`, in a condition, an argument, a print, …)
+// must also be a legal identifier. Python rejects `x = 1y` or `x = a-b` at
+// compile time with a SyntaxError, before it ever asks whether the name exists;
+// only a syntactically *valid* but undefined name is the runtime NameError that
+// the read closures already raise. So this check runs at build time, when the
+// reference node is constructed, not at evaluate time.
+//
+// Unlike a binding, a read has no "cannot assign to …" cases: a bare number or
+// a constant like True is a legal expression in Python, not an error. In this
+// language those never arrive as references (the frontend emits them as literal
+// blocks), so a reserved word sitting in a reference slot is malformed and is
+// reported as plain "invalid syntax", exactly as a keyword read would be.
+function validateReference(name) {
+    if (typeof name !== 'string' || name.trim() === '') {
+        throw new SyntaxError('invalid syntax');
+    }
+    // 1y, 3abc — CPython reads a malformed number token, not a name.
+    if (/^[0-9]/.test(name)) {
+        throw new SyntaxError('invalid decimal literal');
+    }
+    if (RESERVED.has(name) || !IDENTIFIER.test(name)) {
+        throw new SyntaxError('invalid syntax');
+    }
+    return name;
+}
+
+// ---------------------------------------------------------------------------
 // Literals
 // ---------------------------------------------------------------------------
 
@@ -66,6 +158,9 @@ function toExpr(block) {
         // 'variable' means assignment (see toStmt).
         case 'variableReference':
         case 'variable':
+            // #27: reject a syntactically illegal name now (SyntaxError), so a
+            // name that could never exist isn't misreported as "not defined".
+            validateReference(block.name);
             return { evaluate: (env) => {
                 if (!Object.hasOwn(env, block.name)) throw new NameError(`name '${block.name}' is not defined`);   // #20, B4
                 return env[block.name];
@@ -223,10 +318,10 @@ function makeToStmt(output) {
             //     { type:'variable', name:'x', value:{ type:'literal', dataType:'int', value:3 } }
             // valueExpr still handles the older flat { name, dataType, value } form.
             case 'variable':
-                return new Assign(block.name, valueExpr(block));
+                return new Assign(validateName(block.name), valueExpr(block));
 
             case 'assign':
-                return new Assign(block.name, valueExpr(block));
+                return new Assign(validateName(block.name), valueExpr(block));
 
             // #24: the frontend's field is `targets` — `names` was the older
             // backend spelling and is still accepted. Reading only `names` meant
@@ -239,10 +334,10 @@ function makeToStmt(output) {
                 if (targets.length === 0) {
                     throw new ValueError('Parallel assignment needs at least one target');
                 }
+                // #26: each unpack target follows the same identifier rules as a
+                // plain assignment. An empty one still reports "cannot be empty".
                 for (const target of targets) {
-                    if (typeof target !== 'string' || target.trim() === '') {
-                        throw new ValueError('Parallel assignment target name cannot be empty');
-                    }
+                    validateName(target);
                 }
                 // A target/value count mismatch is left to ParallelAssign.evaluate,
                 // which reports it with Python's unpacking wording.
@@ -301,7 +396,7 @@ function makeToStmt(output) {
             case 'for':
             case 'forRange':
                 return new ForRange(
-                    block.variable ?? block.target,
+                    validateName(block.variable ?? block.target),
                     toExpr(block.start),
                     toExpr(block.end ?? block.stop),
                     pick(block.children, block.body).map(toStmt)
@@ -311,18 +406,26 @@ function makeToStmt(output) {
             // its own tag so the class stays reachable if one is agreed on.
             case 'forIn':
                 return new For(
-                    block.variable ?? block.target,
+                    validateName(block.variable ?? block.target),
                     toExpr(block.iterable),
                     pick(block.children, block.body).map(toStmt)
                 );
 
             case 'tryCatch':
-            case 'tac':
+            case 'tac': {
+                // #26: `except E as name` binds `name`, so it follows the same
+                // identifier rules — but only when a name is actually given
+                // (a bare catch that binds nothing is left as-is).
+                const catchName = block.catchErrorName ?? block.error;
+                if (catchName !== undefined && catchName !== null && catchName !== '') {
+                    validateName(catchName);
+                }
                 return new TaC(
                     pick(block.tryChildren, block.body).map(toStmt),
-                    block.catchErrorName ?? block.error,
+                    catchName,
                     pick(block.catchChildren, block.handler).map(toStmt)
                 );
+            }
 
             // #11
             case 'return':
@@ -377,9 +480,16 @@ function runProgram(program) {
 
     for (const def of defs) {
         try {
+            // #26: a function's own name and every parameter are bindings too,
+            // so they follow the same identifier rules as a variable. Python
+            // rejects `def 1f():` and `def f(1x):` at definition time; so do we.
+            validateName(def.name, 'function');
+            const params = def.params ?? [];
+            for (const param of params) validateName(param, 'parameter');
+
             env[def.name] = new UserFunction(
                 def.name,
-                def.params ?? [],
+                params,
                 pick(def.children, def.body).map(toStmt)
             );
             results.push({ id: def.id, status: 'ok' });
@@ -416,4 +526,4 @@ function runProgram(program) {
     return { variables, output, results };
 }
 
-module.exports = { runProgram, runBlocks: runProgram };
+module.exports = { runProgram, runBlocks: runProgram, validateName };
