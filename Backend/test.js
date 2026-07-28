@@ -316,7 +316,12 @@ raw('A1  parentheses still group expressions', () => {
 // ===========================================================================
 t('A2  modulo by zero throws instead of yielding NaN',
   { blocks: [{ id: 1, type: 'variable', name: 'x', value: calc(lit('int', 5), '%', lit('int', 0)) }] },
-  (r, e) => { if (!e.length || !/Modulo by zero/.test(e[0].message)) throw new Error('expected Modulo by zero'); });
+  (r, e) => {
+      if (!e.length) throw new Error('expected an error');
+      if (e[0].errorType !== 'ZeroDivisionError') throw new Error(`errorType ${e[0].errorType}`);
+      // Python's exact wording, lowercase, for `5 % 0`.
+      if (!/integer modulo by zero/.test(e[0].message)) throw new Error(`message ${e[0].message}`);
+  });
 
 t('A2  normal modulo still works',
   { blocks: [{ id: 1, type: 'variable', name: 'x', value: calc(lit('int', 7), '%', lit('int', 3)) }] },
@@ -331,9 +336,10 @@ t('A3  catch variable holds a readable message, not {}',
       catchChildren: [{ id: 3, type: 'print', value: ref('error') }] }] },
   (r, e) => {
       noErr(e);
-      eq(r.output, ['Division by zero'], 'printed message');
-      eq(r.variables.error, 'Division by zero', 'bound value');
-      eq(JSON.parse(JSON.stringify(r.variables)).error, 'Division by zero', 'survives JSON');
+      // Python's exact wording, lowercase, for `1 / 0`.
+      eq(r.output, ['division by zero'], 'printed message');
+      eq(r.variables.error, 'division by zero', 'bound value');
+      eq(JSON.parse(JSON.stringify(r.variables)).error, 'division by zero', 'survives JSON');
   });
 
 // ===========================================================================

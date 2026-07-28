@@ -89,7 +89,9 @@ class BinaryOperator extends Expr {
                 // A2: was returning NaN, which silently poisons every
                 // downstream calculation. Match the behaviour of "/".
                 requireNumeric("%", left, right);
-                if (right === 0) throw new ZeroDivisionError("modulo by zero");
+                // A2: Python's exact wording is "integer modulo by zero"
+                // (mirrors "division by zero" from the "/" case above).
+                if (right === 0) throw new ZeroDivisionError("integer modulo by zero");
                 return left % right;
 
             case "**":
