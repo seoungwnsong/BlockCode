@@ -26,12 +26,24 @@ class UserFunction {
             throw new TypeError(`Function ${this.name} expects ${this.params.length} argument(s), got ${argValues.length}`);
         }
 
-        // Fresh local scope. Seed it with the other registered functions
-        // (supports nested / recursive / mutually recursive calls), then bind params.
+        // Fresh local scope, seeded with a snapshot of the global environment.
+        // This gives the body READ access to globals — both other registered
+        // functions (so nested / recursive / mutually recursive calls resolve)
+        // and global variables, exactly like Python:
+        //     x = 42
+        //     def f(): print(x)   # sees the global x
+        //
+        // Because it's a copy (own properties on a flat env, not a prototype
+        // chain — Call/variableReference test with Object.hasOwn), any assignment
+        // inside the body writes to localEnv and merely SHADOWS the global for the
+        // rest of the call, never mutating it. That matches Python's default:
+        // a plain `x = ...` in a function is local unless declared `global x`
+        // (which this language has no block for). Params bind last, so an argument
+        // named like a global wins inside the body.
         const localEnv = Object.create(null);   // #20
         if (this.globalEnv) {
             for (const key of Object.keys(this.globalEnv)) {
-                if (this.globalEnv[key] instanceof UserFunction) localEnv[key] = this.globalEnv[key];
+                localEnv[key] = this.globalEnv[key];
             }
         }
         for (let i = 0; i < this.params.length; i++) {

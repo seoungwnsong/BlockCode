@@ -525,5 +525,40 @@ t('#25  elif works the same inside a function body',
   (r, e) => { noErr(e); eq(r.variables.a, 1, 'a'); eq(r.variables.b, -1, 'b'); eq(r.variables.c, 0, 'c'); });
 
 // ===========================================================================
+// Global scope: a function body can READ global variables, like Python.
+// ===========================================================================
+t('G1  a function can read a global variable',
+  { functions: [{ id: 99, type: 'def', name: 'showX', params: [],
+      children: [{ id: 100, type: 'print', value: ref('x') }] }],
+    blocks: [
+      { id: 1, type: 'variable', name: 'x', value: lit('int', 42) },
+      { id: 2, type: 'call', name: 'showX', args: [] }] },
+  (r, e) => { noErr(e); eq(r.output[0], '42', 'printed global x'); });
+
+t('G1  a global read works even in a returned expression',
+  { functions: [{ id: 99, type: 'def', name: 'plusX', params: ['n'],
+      children: [{ id: 100, type: 'return', value: calc(ref('n'), '+', ref('x')) }] }],
+    blocks: [
+      { id: 1, type: 'variable', name: 'x', value: lit('int', 10) },
+      { id: 2, type: 'variable', name: 'r', value: call('plusX', [lit('int', 5)]) }] },
+  (r, e) => { noErr(e); eq(r.variables.r, 15, 'n + x'); });
+
+t('G1  assigning inside a function shadows, does not mutate the global',
+  { functions: [{ id: 99, type: 'def', name: 'setX', params: [],
+      children: [{ id: 100, type: 'assign', name: 'x', value: lit('int', 99) }] }],
+    blocks: [
+      { id: 1, type: 'variable', name: 'x', value: lit('int', 42) },
+      { id: 2, type: 'call', name: 'setX', args: [] }] },
+  (r, e) => { noErr(e); eq(r.variables.x, 42, 'global x unchanged'); });
+
+t('G1  a parameter wins over a same-named global inside the body',
+  { functions: [{ id: 99, type: 'def', name: 'echo', params: ['x'],
+      children: [{ id: 100, type: 'print', value: ref('x') }] }],
+    blocks: [
+      { id: 1, type: 'variable', name: 'x', value: lit('int', 42) },
+      { id: 2, type: 'call', name: 'echo', args: [lit('int', 7)] }] },
+  (r, e) => { noErr(e); eq(r.output[0], '7', 'param shadows global'); });
+
+// ===========================================================================
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
