@@ -86,6 +86,31 @@ type DictionaryExpression = {
   entries: DictionaryEntry[];
 };
 
+type BuiltinFunctionName =
+  | "len"
+  | "type"
+  | "int"
+  | "float"
+  | "str"
+  | "bool"
+  | "list"
+  | "tuple"
+  | "set"
+  | "dict"
+  | "abs"
+  | "round"
+  | "min"
+  | "max"
+  | "sum"
+  | "sorted";
+
+type BuiltinCallExpression = {
+  id: number;
+  type: "builtinCall";
+  name: BuiltinFunctionName;
+  argLabels: string[];
+  args: Expression[];
+};
 
 type CallExpression = {
   id: number;
@@ -106,6 +131,7 @@ type Expression =
   | ArrayExpression
   | SetExpression
   | DictionaryExpression
+  | BuiltinCallExpression
   | CallExpression;
 
 type ExpressionStatementBlock =
@@ -116,6 +142,7 @@ type ExpressionStatementBlock =
   | ArrayExpression
   | SetExpression
   | DictionaryExpression
+  | BuiltinCallExpression
   | CallExpression;
 
 type ElifBranch = {
@@ -189,7 +216,7 @@ type UserFunction = {
   children: Block[];
 };
 
-type BlockType = Block["type"];
+type BlockType = Exclude<Block["type"], "builtinCall">;
 
 type BlockCategory =
   | "basics"
@@ -205,6 +232,62 @@ const BLOCK_CATEGORIES: { id: BlockCategory; label: string; title: string }[] = 
   { id: "flow", label: "Flow", title: "Control flow" },
   { id: "functions", label: "Functions", title: "User functions" },
 ];
+
+type BuiltinDefinition = {
+  name: BuiltinFunctionName;
+  argLabels: string[];
+};
+
+type BuiltinGroup = {
+  title: string;
+  functions: BuiltinDefinition[];
+};
+
+const BUILTIN_GROUPS: BuiltinGroup[] = [
+  {
+    title: "General",
+    functions: [
+      { name: "len", argLabels: ["value"] },
+      { name: "type", argLabels: ["value"] },
+    ],
+  },
+  {
+    title: "Convert",
+    functions: [
+      { name: "int", argLabels: ["value"] },
+      { name: "float", argLabels: ["value"] },
+      { name: "str", argLabels: ["value"] },
+      { name: "bool", argLabels: ["value"] },
+      { name: "list", argLabels: ["value"] },
+      { name: "tuple", argLabels: ["value"] },
+      { name: "set", argLabels: ["value"] },
+      { name: "dict", argLabels: ["value"] },
+    ],
+  },
+  {
+    title: "Numbers",
+    functions: [
+      { name: "abs", argLabels: ["number"] },
+      { name: "round", argLabels: ["number", "digits"] },
+      { name: "min", argLabels: ["value 1", "value 2"] },
+      { name: "max", argLabels: ["value 1", "value 2"] },
+      { name: "sum", argLabels: ["values"] },
+    ],
+  },
+  {
+    title: "Collections",
+    functions: [{ name: "sorted", argLabels: ["values"] }],
+  },
+];
+
+function getBuiltinDefinition(name: BuiltinFunctionName): BuiltinDefinition {
+  for (const group of BUILTIN_GROUPS) {
+    const definition = group.functions.find((item) => item.name === name);
+    if (definition) return definition;
+  }
+
+  return { name, argLabels: ["value"] };
+}
 
 type ListDropTarget =
   | {
@@ -311,6 +394,12 @@ type JsonExpression =
     }
   | {
       id: number;
+      type: "builtinCall";
+      name: BuiltinFunctionName;
+      args: JsonExpression[];
+    }
+  | {
+      id: number;
       type: "call";
       functionId: number;
       name: string;
@@ -350,6 +439,7 @@ type JsonBlock =
           | "array"
           | "set"
           | "dictionary"
+          | "builtinCall"
           | "call";
       }
     >
@@ -625,6 +715,21 @@ function createDictionaryExpression(id = makeId()): DictionaryExpression {
   };
 }
 
+function createBuiltinCallExpression(
+  name: BuiltinFunctionName,
+  id = makeId()
+): BuiltinCallExpression {
+  const definition = getBuiltinDefinition(name);
+
+  return {
+    id,
+    type: "builtinCall",
+    name,
+    argLabels: [...definition.argLabels],
+    args: definition.argLabels.map(() => createAtomicExpression()),
+  };
+}
+
 function createCallExpression(func: UserFunction): CallExpression {
   return {
     id: makeId(),
@@ -761,6 +866,7 @@ function isExpressionStatement(
     expression.type === "array" ||
     expression.type === "set" ||
     expression.type === "dictionary" ||
+    expression.type === "builtinCall" ||
     expression.type === "call"
   );
 }
@@ -776,6 +882,7 @@ function isExpressionStatementBlock(
     block.type === "array" ||
     block.type === "set" ||
     block.type === "dictionary" ||
+    block.type === "builtinCall" ||
     block.type === "call"
   );
 }
@@ -823,7 +930,10 @@ function expressionContainsId(expression: Expression, id: number): boolean {
 
 
 
-  if (expression.type === "call") {
+  if (
+    expression.type === "call" ||
+    expression.type === "builtinCall"
+  ) {
     return expression.args.some((argument) =>
       expressionContainsId(argument, id)
     );
@@ -884,7 +994,10 @@ function findExpressionById(
 
 
 
-  if (expression.type === "call") {
+  if (
+    expression.type === "call" ||
+    expression.type === "builtinCall"
+  ) {
     for (const argument of expression.args) {
       const found = findExpressionById(argument, id);
       if (found) return found;
@@ -962,7 +1075,10 @@ function updateExpressionById(
 
 
 
-  if (expression.type === "call") {
+  if (
+    expression.type === "call" ||
+    expression.type === "builtinCall"
+  ) {
     return {
       ...expression,
       args: expression.args.map((argument) =>
@@ -1624,6 +1740,20 @@ function syncExpressionFunctionCalls(
 
 
 
+  if (expression.type === "builtinCall") {
+    return {
+      ...expression,
+      args: expression.args.map((argument) =>
+        syncExpressionFunctionCalls(
+          argument,
+          functionId,
+          nextName,
+          nextParams
+        )
+      ),
+    };
+  }
+
   if (expression.type === "call") {
     const recursivelyUpdatedArgs = expression.args.map((argument) =>
       syncExpressionFunctionCalls(
@@ -1892,7 +2022,10 @@ function removeFunctionCallsFromExpression(
 
 
 
-  if (expression.type === "call") {
+  if (
+    expression.type === "call" ||
+    expression.type === "builtinCall"
+  ) {
     return {
       ...expression,
       args: expression.args.map((argument) =>
@@ -2091,6 +2224,14 @@ function serializeExpression(expression: Expression): JsonExpression {
         })),
       };
 
+    case "builtinCall":
+      return {
+        id: expression.id,
+        type: "builtinCall",
+        name: expression.name,
+        args: expression.args.map(serializeExpression),
+      };
+
     case "call":
       return {
         id: expression.id,
@@ -2121,6 +2262,7 @@ function serializeBlock(block: Block): JsonBlock {
           | "array"
           | "set"
           | "dictionary"
+          | "builtinCall"
           | "call";
       }
     >;
@@ -2892,6 +3034,15 @@ function App() {
     event.dataTransfer.effectAllowed = "copy";
   }
 
+  function handleBuiltinDragStart(
+    event: DragEvent<HTMLDivElement>,
+    name: BuiltinFunctionName
+  ) {
+    event.dataTransfer.setData("source", "builtin");
+    event.dataTransfer.setData("builtinName", name);
+    event.dataTransfer.effectAllowed = "copy";
+  }
+
   function handleWorkspaceBlockDragStart(
     event: DragEvent<HTMLDivElement>,
     id: number
@@ -2950,6 +3101,24 @@ function App() {
         setCurrentBlocks((previous) =>
           insertIntoBlocks(previous, finalTarget, createBlock(blockType))
         );
+      }
+    }
+
+    if (source === "builtin") {
+      const builtinName = event.dataTransfer.getData(
+        "builtinName"
+      ) as BuiltinFunctionName;
+
+      if (builtinName) {
+        const call = createBuiltinCallExpression(builtinName);
+
+        if (finalTarget.area === "expression") {
+          replaceCurrentExpression(finalTarget.expressionId, call);
+        } else {
+          setCurrentBlocks((previous) =>
+            insertIntoBlocks(previous, finalTarget, call)
+          );
+        }
       }
     }
 
@@ -3080,6 +3249,13 @@ function App() {
 
   function addBlock(type: BlockType) {
     setCurrentBlocks((previous) => [...previous, createBlock(type)]);
+  }
+
+  function addBuiltinCall(name: BuiltinFunctionName) {
+    setCurrentBlocks((previous) => [
+      ...previous,
+      createBuiltinCallExpression(name),
+    ]);
   }
 
   function deleteBlock(id: number) {
@@ -3308,6 +3484,25 @@ function App() {
         onClick={() => addBlock(type)}
       >
         {label}
+      </div>
+    );
+  }
+
+  function renderBuiltinBlock(definition: BuiltinDefinition) {
+    return (
+      <div
+        key={definition.name}
+        className="template-block builtin-template"
+        draggable
+        onDragStart={(event) =>
+          handleBuiltinDragStart(event, definition.name)
+        }
+        onDragEnd={handleDragEnd}
+        onClick={() => addBuiltinCall(definition.name)}
+        title={`${definition.name}(${definition.argLabels.join(", ")})`}
+      >
+        <span className="builtin-template-name">{definition.name}</span>
+        <span className="builtin-template-parentheses">()</span>
       </div>
     );
   }
@@ -3871,6 +4066,32 @@ function App() {
     );
   }
 
+  function renderBuiltinCallContent(expression: BuiltinCallExpression) {
+    return (
+      <div className="expression-content-row function-call-row builtin-call-row">
+        <span className="function-call-name builtin-call-name">
+          {expression.name}
+        </span>
+        <span>(</span>
+
+        {expression.args.map((argument, index) => (
+          <div key={argument.id} className="function-argument-item">
+            {renderExpressionSlot(
+              argument,
+              expression.argLabels[index] || `arg ${index + 1}`,
+              "function-argument-slot",
+              78,
+              170
+            )}
+            {index < expression.args.length - 1 && <span>,</span>}
+          </div>
+        ))}
+
+        <span>)</span>
+      </div>
+    );
+  }
+
   function renderNestedExpression(expression: ExpressionStatementBlock) {
     const expressionClass =
       expression.type === "calculation" ||
@@ -3883,7 +4104,9 @@ function App() {
               expression.type === "set" ||
               expression.type === "dictionary"
             ? "collection-expression"
-            : "call-expression";
+            : expression.type === "builtinCall"
+              ? "builtin-call-expression"
+              : "call-expression";
 
     return (
       <div
@@ -3908,6 +4131,8 @@ function App() {
           renderCollectionContent(expression)}
         {expression.type === "dictionary" &&
           renderDictionaryContent(expression)}
+        {expression.type === "builtinCall" &&
+          renderBuiltinCallContent(expression)}
         {expression.type === "call" && renderCallContent(expression)}
       </div>
     );
@@ -4114,6 +4339,12 @@ function App() {
               150,
               300
             )}
+          </div>
+        )}
+
+        {block.type === "builtinCall" && (
+          <div className="block-row expression-enabled-row">
+            {renderBuiltinCallContent(block)}
           </div>
         )}
 
@@ -4349,9 +4580,20 @@ function App() {
         </div>
       </header>
 
-      <aside className="function-sidebar app-font">
+      <aside className="function-sidebar builtin-sidebar app-font">
         <div className="sidebar-header">
           <h1>Built-ins</h1>
+        </div>
+
+        <div className="builtin-groups">
+          {BUILTIN_GROUPS.map((group) => (
+            <section className="builtin-group" key={group.title}>
+              <h2>{group.title}</h2>
+              <div className="builtin-list">
+                {group.functions.map(renderBuiltinBlock)}
+              </div>
+            </section>
+          ))}
         </div>
       </aside>
 
