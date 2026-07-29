@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { DragEvent } from "react";
 import "./App.css";
+import blockCodeLogo from "./assets/blockcode-logo.png";
 
 type DataType = "int" | "float" | "bool" | "string";
 type MathOperator = "+" | "-" | "*" | "/" | "%";
@@ -190,14 +191,19 @@ type UserFunction = {
 
 type BlockType = Block["type"];
 
-type BlockCategory = "basics" | "expressions" | "data" | "flow" | "more";
+type BlockCategory =
+  | "basics"
+  | "expressions"
+  | "data"
+  | "flow"
+  | "functions";
 
 const BLOCK_CATEGORIES: { id: BlockCategory; label: string; title: string }[] = [
   { id: "basics", label: "Basic", title: "Basic blocks" },
   { id: "expressions", label: "Expr", title: "Expressions" },
   { id: "data", label: "Data", title: "Data structures" },
   { id: "flow", label: "Flow", title: "Control flow" },
-  { id: "more", label: "More", title: "More blocks" },
+  { id: "functions", label: "Functions", title: "User functions" },
 ];
 
 type ListDropTarget =
@@ -4314,100 +4320,44 @@ function App() {
 
   return (
     <div className="app" onClick={() => setOpenFunctionMenuId(null)}>
-      <aside className="function-sidebar app-font">
-        <div className="sidebar-header">
-          <h1>Functions</h1>
-          <span>Custom blocks</span>
+      <header className="app-topbar app-font">
+        <div className="topbar-brand">
+          <img
+            src={blockCodeLogo}
+            alt="BlockCode"
+            className="topbar-logo"
+          />
         </div>
 
-        <button className="create-function-button" onClick={createFunction}>
-          + Create Function
-        </button>
-
-        {functions.length === 0 && (
-          <p className="empty-function-message">
-            Create a function to make your own reusable block.
-          </p>
-        )}
-
-        {functions.map((func) => (
-          <div
-            key={func.id}
-            className={`function-library-item ${
-              openFunctionMenuId === func.id ? "menu-open" : ""
-            }`}
+        <div className="topbar-actions">
+          <button
+            className="run-button"
+            onClick={checkFlow}
+            title="Run program"
+            aria-label="Run program"
           >
-            <div
-              className="template-block function-template function-library-block"
-              draggable
-              onDragStart={(event) => {
-                event.dataTransfer.setData("source", "function");
-                event.dataTransfer.setData("functionId", String(func.id));
-                event.dataTransfer.effectAllowed = "copy";
-              }}
-              onDragEnd={handleDragEnd}
-              onClick={() => addFunctionCall(func)}
+            <svg
+              className="run-icon"
+              viewBox="0 0 24 24"
+              width="20"
+              height="20"
+              aria-hidden="true"
             >
-              <span className="function-block-name">{func.name}</span>
+              <path d="M8 5V19L19 12L8 5Z" />
+            </svg>
+          </button>
+        </div>
+      </header>
 
-              <button
-                className="function-more-button"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  setOpenFunctionMenuId((previous) =>
-                    previous === func.id ? null : func.id
-                  );
-                }}
-                title="Function options"
-              >
-                ⋯
-              </button>
-
-              {openFunctionMenuId === func.id && (
-                <div
-                  className="function-menu"
-                  onClick={(event) => event.stopPropagation()}
-                >
-                  <button
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      openFunctionTab(func.id);
-                    }}
-                  >
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                      <path d="M4 20H8L18.5 9.5L14.5 5.5L4 16V20Z" />
-                      <path d="M13.5 6.5L17.5 10.5" />
-                    </svg>
-                    <span>Edit</span>
-                  </button>
-
-                  <button
-                    className="danger-menu-item"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      requestDeleteFunction(func.id);
-                    }}
-                  >
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                      <path d="M5 7H19" />
-                      <path d="M10 11V17" />
-                      <path d="M14 11V17" />
-                      <path d="M8 7L9 4H15L16 7" />
-                      <path d="M7 7L8 20H16L17 7" />
-                    </svg>
-                    <span>Delete</span>
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        ))}
+      <aside className="function-sidebar app-font">
+        <div className="sidebar-header">
+          <h1>Built-ins</h1>
+        </div>
       </aside>
 
       <aside className="block-menu app-font">
         <div className="sidebar-header">
           <h1>Blocks</h1>
-          <span>Choose a category, then drag or click</span>
         </div>
 
         <div
@@ -4438,11 +4388,11 @@ function App() {
           {activeBlockCategory === "basics" && (
             <section className="block-section active-block-section">
               <div className="block-section-heading">
-                <h3>Start Here</h3>
-                <p>Create a value or show a result.</p>
+                <h3>Basic</h3>
               </div>
               {renderPaletteBlock("variable", "variable", "variable-template")}
               {renderPaletteBlock("print", "print", "print-template")}
+              {renderPaletteBlock("return", "return", "return-template")}
             </section>
           )}
 
@@ -4450,7 +4400,6 @@ function App() {
             <section className="block-section active-block-section">
               <div className="block-section-heading">
                 <h3>Expressions</h3>
-                <p>Calculate values and build conditions.</p>
               </div>
               {renderPaletteBlock(
                 "calculation",
@@ -4465,7 +4414,6 @@ function App() {
             <section className="block-section active-block-section">
               <div className="block-section-heading">
                 <h3>Python Data</h3>
-                <p>Build collections with expandable items.</p>
               </div>
               {renderPaletteBlock("array / list", "array", "array-template")}
               {renderPaletteBlock("set", "set", "set-template")}
@@ -4480,23 +4428,97 @@ function App() {
           {activeBlockCategory === "flow" && (
             <section className="block-section active-block-section">
               <div className="block-section-heading">
-                <h3>Control Flow</h3>
-                <p>Choose paths and repeat blocks.</p>
+                <h3>Flow</h3>
               </div>
               {renderPaletteBlock("if", "if", "control-template")}
               {renderPaletteBlock("for", "for", "control-template")}
               {renderPaletteBlock("while", "while", "control-template")}
+              {renderPaletteBlock("try/catch", "tryCatch", "try-template")}
             </section>
           )}
 
-          {activeBlockCategory === "more" && (
-            <section className="block-section active-block-section">
+          {activeBlockCategory === "functions" && (
+            <section className="block-section active-block-section function-category-section">
               <div className="block-section-heading">
-                <h3>More Blocks</h3>
-                <p>Use these when your program needs them.</p>
+                <h3>Functions</h3>
               </div>
-              {renderPaletteBlock("try/catch", "tryCatch", "try-template")}
-              {renderPaletteBlock("return", "return", "return-template")}
+
+              <button className="create-function-button" onClick={createFunction}>
+                + Create Function
+              </button>
+
+              {functions.map((func) => (
+                <div
+                  key={func.id}
+                  className={`function-library-item ${
+                    openFunctionMenuId === func.id ? "menu-open" : ""
+                  }`}
+                >
+                  <div
+                    className="template-block function-template function-library-block"
+                    draggable
+                    onDragStart={(event) => {
+                      event.dataTransfer.setData("source", "function");
+                      event.dataTransfer.setData("functionId", String(func.id));
+                      event.dataTransfer.effectAllowed = "copy";
+                    }}
+                    onDragEnd={handleDragEnd}
+                    onClick={() => addFunctionCall(func)}
+                  >
+                    <span className="function-block-name">{func.name}</span>
+
+                    <button
+                      className="function-more-button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setOpenFunctionMenuId((previous) =>
+                          previous === func.id ? null : func.id
+                        );
+                      }}
+                      title="Function options"
+                    >
+                      ⋯
+                    </button>
+
+                    {openFunctionMenuId === func.id && (
+                      <div
+                        className="function-menu"
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        <button
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openFunctionTab(func.id);
+                          }}
+                        >
+                          <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M4 20H8L18.5 9.5L14.5 5.5L4 16V20Z" />
+                            <path d="M13.5 6.5L17.5 10.5" />
+                          </svg>
+                          <span>Edit</span>
+                        </button>
+
+                        <button
+                          className="danger-menu-item"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            requestDeleteFunction(func.id);
+                          }}
+                        >
+                          <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M5 7H19" />
+                            <path d="M10 11V17" />
+                            <path d="M14 11V17" />
+                            <path d="M8 7L9 4H15L16 7" />
+                            <path d="M7 7L8 20H16L17 7" />
+                          </svg>
+                          <span>Delete</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
             </section>
           )}
         </div>
@@ -4544,71 +4566,58 @@ function App() {
           </div>
 
           <div className="workspace-toolbar app-font">
-            <div className="workspace-toolbar-left">
-              <h2>
-                {editingFunction
-                  ? `Function: ${editingFunction.name}`
-                  : "Workspace"}
-              </h2>
-              <p>
-                {editingFunction
-                  ? "Build this function, then switch back to the main workspace."
-                  : "Drop statement blocks in the workspace and expression blocks inside value slots."}
-              </p>
+            {editingFunction && (
+              <div className="function-editor-controls">
+                <div className="function-editor-row">
+                  <label>name</label>
+                  <input
+                    placeholder="function name"
+                    value={editingFunction.name}
+                    onChange={(event) =>
+                      updateFunctionName(editingFunction.id, event.target.value)
+                    }
+                  />
+                </div>
 
-              {editingFunction && (
-                <div className="function-editor-controls">
-                  <div className="function-editor-row">
-                    <label>name</label>
-                    <input
-                      placeholder="function name"
-                      value={editingFunction.name}
-                      onChange={(event) =>
-                        updateFunctionName(editingFunction.id, event.target.value)
-                      }
-                    />
+                <div className="parameter-editor">
+                  <div className="parameter-header">
+                    <span>Parameters</span>
+                    <button onClick={() => addParameter(editingFunction.id)}>
+                      + Add Parameter
+                    </button>
                   </div>
 
-                  <div className="parameter-editor">
-                    <div className="parameter-header">
-                      <span>Parameters</span>
-                      <button onClick={() => addParameter(editingFunction.id)}>
-                        + Add Parameter
-                      </button>
-                    </div>
+                  {editingFunction.params.length === 0 && (
+                    <p className="parameter-empty">No parameters yet.</p>
+                  )}
 
-                    {editingFunction.params.length === 0 && (
-                      <p className="parameter-empty">No parameters yet.</p>
-                    )}
-
-                    <div className="parameter-list">
-                      {editingFunction.params.map((param, index) => (
-                        <div key={index} className="parameter-item">
-                          <input
-                            placeholder={`param ${index + 1}`}
-                            value={param}
-                            onChange={(event) =>
-                              updateParameter(
-                                editingFunction.id,
-                                index,
-                                event.target.value
-                              )
-                            }
-                          />
-                          <button
-                            onClick={() =>
-                              deleteParameter(editingFunction.id, index)
-                            }
-                          >
-                            ×
-                          </button>
-                        </div>
-                      ))}
-                    </div>
+                  <div className="parameter-list">
+                    {editingFunction.params.map((param, index) => (
+                      <div key={index} className="parameter-item">
+                        <input
+                          placeholder={`param ${index + 1}`}
+                          value={param}
+                          onChange={(event) =>
+                            updateParameter(
+                              editingFunction.id,
+                              index,
+                              event.target.value
+                            )
+                          }
+                        />
+                        <button
+                          onClick={() =>
+                            deleteParameter(editingFunction.id, index)
+                          }
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
                   </div>
                 </div>
-              )}
-            </div>
+              </div>
+            )}
 
             <div className="zoom-controls">
               <button onClick={zoomOut}>−</button>
@@ -4643,21 +4652,7 @@ function App() {
         <div className="output-topbar">
           <div className="output-header">
             <h2>Output</h2>
-            <span>Program result</span>
           </div>
-
-          <button className="run-button" onClick={checkFlow}>
-            <svg
-              className="run-icon"
-              viewBox="0 0 24 24"
-              width="14"
-              height="14"
-              aria-hidden="true"
-            >
-              <path d="M8 5V19L19 12L8 5Z" />
-            </svg>
-            <span>Run</span>
-          </button>
         </div>
 
         {result && <pre className="result-message">{result}</pre>}
