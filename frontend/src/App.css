@@ -3149,3 +3149,193 @@ textarea {
     grid-template-columns: 1fr;
   }
 }
+
+/* =========================================================
+   BUILT-IN CARD + WORKSPACE RUN CONTROL
+   Final UI overrides only.
+   ========================================================= */
+
+.builtin-groups {
+  --builtin-card-bg: #0b1522;
+
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 16px 12px 12px;
+
+  border: 1px solid rgba(148, 163, 184, 0.1);
+  border-radius: 16px;
+  background: var(--builtin-card-bg);
+
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.018),
+    0 10px 22px rgba(0, 0, 0, 0.12);
+}
+
+.builtin-group {
+  margin: 0 0 18px;
+  padding: 0 0 18px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.08);
+}
+
+.builtin-group:last-child {
+  margin-bottom: 0;
+  padding-bottom: 4px;
+  border-bottom: 0;
+}
+
+.builtin-group h2 {
+  margin: 0 0 12px;
+  padding: 0;
+  text-align: center;
+}
+
+.builtin-list {
+  padding: 6px 0;
+}
+
+.builtin-template {
+  --dent-color: var(--builtin-card-bg);
+}
+
+.workspace-toolbar-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+
+.workspace-toolbar .zoom-controls {
+  margin-left: 0;
+}
+
+.run-button-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+.run-button {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  padding: 0;
+
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #67c77a;
+  box-shadow: none;
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+
+  transition:
+    color 0.12s ease,
+    background 0.12s ease,
+    transform 0.08s ease;
+}
+
+.run-button:hover {
+  color: #e1e6ee;
+  border: 0;
+  background: rgba(255, 255, 255, 0.075);
+  box-shadow: none;
+  transform: none;
+}
+
+.run-button:focus-visible {
+  outline: 2px solid rgba(203, 213, 225, 0.42);
+  outline-offset: 2px;
+}
+
+.run-button:active {
+  color: #f3f4f6;
+  background: rgba(255, 255, 255, 0.11);
+  transform: translateY(1px);
+}
+
+.run-icon {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.05;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transform: none;
+}
+
+.run-button-wrap::before,
+.run-button-wrap::after {
+  position: absolute;
+  z-index: 300;
+  pointer-events: none;
+  opacity: 0;
+  transition:
+    opacity 0.12s ease,
+    transform 0.12s ease;
+}
+
+.run-button-wrap::before {
+  content: "";
+  top: calc(100% + 5px);
+  right: 12px;
+  width: 9px;
+  height: 9px;
+  background: #343943;
+  transform: translateY(-4px) rotate(45deg);
+}
+
+.run-button-wrap::after {
+  content: attr(data-tooltip);
+  top: calc(100% + 10px);
+  right: 0;
+
+  padding: 9px 11px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 7px;
+  background: #343943;
+  color: #f1f3f6;
+
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.32);
+  white-space: nowrap;
+  font-family: Inter, Arial, sans-serif;
+  font-size: 12px;
+  font-weight: 550;
+  letter-spacing: 0;
+
+  transform: translateY(-4px);
+}
+
+.run-button-wrap:hover::before,
+.run-button-wrap:hover::after,
+.run-button-wrap:focus-within::before,
+.run-button-wrap:focus-within::after {
+  opacity: 1;
+}
+
+.run-button-wrap:hover::before,
+.run-button-wrap:focus-within::before {
+  transform: translateY(0) rotate(45deg);
+}
+
+.run-button-wrap:hover::after,
+.run-button-wrap:focus-within::after {
+  transform: translateY(0);
+}
+
+@media (max-width: 1220px) {
+  .workspace-toolbar-actions {
+    gap: 6px;
+  }
+
+  .run-button-wrap::after {
+    right: -4px;
+  }
+}
+

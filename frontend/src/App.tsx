@@ -4560,24 +4560,6 @@ function App() {
           />
         </div>
 
-        <div className="topbar-actions">
-          <button
-            className="run-button"
-            onClick={checkFlow}
-            title="Run program"
-            aria-label="Run program"
-          >
-            <svg
-              className="run-icon"
-              viewBox="0 0 24 24"
-              width="20"
-              height="20"
-              aria-hidden="true"
-            >
-              <path d="M8 5V19L19 12L8 5Z" />
-            </svg>
-          </button>
-        </div>
       </header>
 
       <aside className="function-sidebar builtin-sidebar app-font">
@@ -4861,11 +4843,34 @@ function App() {
               </div>
             )}
 
-            <div className="zoom-controls">
-              <button onClick={zoomOut}>−</button>
-              <span>{Math.round(zoom * 100)}%</span>
-              <button onClick={zoomIn}>+</button>
-              <button onClick={resetZoom}>Reset</button>
+            <div className="workspace-toolbar-actions">
+              <div className="zoom-controls">
+                <button onClick={zoomOut} aria-label="Zoom out">−</button>
+                <span>{Math.round(zoom * 100)}%</span>
+                <button onClick={zoomIn} aria-label="Zoom in">+</button>
+                <button onClick={resetZoom}>Reset</button>
+              </div>
+
+              <div
+                className="run-button-wrap"
+                data-tooltip="Run main workspace"
+              >
+                <button
+                  className="run-button"
+                  onClick={checkFlow}
+                  aria-label="Run main workspace"
+                >
+                  <svg
+                    className="run-icon"
+                    viewBox="0 0 24 24"
+                    width="20"
+                    height="20"
+                    aria-hidden="true"
+                  >
+                    <path d="M9.2 6.2C8.6 5.8 8 6.2 8 6.9V17.1C8 17.8 8.6 18.2 9.2 17.8L17.5 12.7C18.1 12.4 18.1 11.6 17.5 11.3L9.2 6.2Z" />
+                  </svg>
+                </button>
+              </div>
             </div>
           </div>
 
