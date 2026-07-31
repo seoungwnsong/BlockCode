@@ -3,6 +3,7 @@ const {
 } = require('./flowstatement');
 const { BinaryOperator, Compare, BoolOp } = require('./operations');
 const { num, Booleans, Strings } = require('./permitivedatatypes');
+const { PyList } = require('./object');                          // composite types
 const { parse } = require('./parser');
 const { UserFunction, Return, Call } = require('./function');   // #11, #12, #13
 const { NameError, ValueError } = require('./errors');          // B4
@@ -152,6 +153,16 @@ function toExpr(block) {
         case 'str':
         case 'string':
             return literalExpr(block.type, block.value);
+
+        // A list literal: { type:'array', items:[ <value block>, ... ] }.
+        // Each item is any value block toExpr can build, so a list may hold
+        // literals, variable reads, calculations or even nested lists. `items`
+        // is optional — an absent or empty array is just [].
+        case 'array':
+        case 'list': {
+            const items = Array.isArray(block.items) ? block.items : [];
+            return new PyList(items.map(toExpr));
+        }
 
         // #5: the frontend reads a variable with { type:'variableReference', name }.
         // 'variable' is kept here only for older payloads; in a STATEMENT slot

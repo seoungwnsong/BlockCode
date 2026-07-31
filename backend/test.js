@@ -697,5 +697,55 @@ t('#27  a valid reference to a defined variable still works',
   (r, e) => { noErr(e); eq(r.variables.x, 9, 'x = y'); });
 
 // ===========================================================================
+// #28  List / array literals — { type:'array', items:[ <value block>, ... ] }.
+//      Each item is any value block, so a list may hold literals, variable
+//      reads, calculations or nested lists. Printing a list uses Python's repr.
+// ===========================================================================
+
+const arr = (...items) => ({ type: 'array', items });
+
+t('#28  a list of int literals assigns as a JS array',
+  { blocks: [{ id: 99, type: 'variable', name: 'numbers',
+      value: arr(lit('int', 1), lit('int', 2), lit('int', 3)) }] },
+  (r, e) => { noErr(e); eq(r.variables.numbers, [1, 2, 3], 'numbers'); });
+
+t('#28  an empty list is []',
+  { blocks: [{ id: 1, type: 'variable', name: 'xs', value: { type: 'array' } }] },
+  (r, e) => { noErr(e); eq(r.variables.xs, [], 'empty list'); });
+
+t('#28  list elements can be variable reads and calculations',
+  { blocks: [
+      { id: 1, type: 'variable', name: 'a', value: lit('int', 10) },
+      { id: 2, type: 'variable', name: 'ys',
+        value: arr(ref('a'), calc(lit('int', 2), '+', lit('int', 3))) }] },
+  (r, e) => { noErr(e); eq(r.variables.ys, [10, 5], 'ys'); });
+
+t('#28  lists nest',
+  { blocks: [{ id: 1, type: 'variable', name: 'grid',
+      value: arr(arr(lit('int', 1), lit('int', 2)), arr(lit('int', 3))) }] },
+  (r, e) => { noErr(e); eq(r.variables.grid, [[1, 2], [3]], 'grid'); });
+
+t('#28  printing a list uses Python repr, strings quoted',
+  { blocks: [{ id: 1, type: 'print',
+      value: arr(lit('int', 1), lit('string', 'a'), lit('bool', true)) }] },
+  (r, e) => { noErr(e); eq(r.output, ["[1, 'a', True]"], 'repr'); });
+
+t('#28  a bad element halts the list with its own error',
+  { blocks: [{ id: 1, type: 'variable', name: 'z', value: arr(ref('missing')) }] },
+  (r) => {
+      const e = r.results.find(x => x.id === 1);
+      if (!e || e.errorType !== 'NameError' || !/name 'missing' is not defined/.test(e.message)) {
+          throw new Error(`unexpected: ${JSON.stringify(e)}`);
+      }
+  });
+
+t('#28  a list drives a for-in loop',
+  { blocks: [
+      { id: 1, type: 'variable', name: 'items', value: arr(lit('int', 1), lit('int', 2)) },
+      { id: 2, type: 'forIn', variable: 'n', iterable: ref('items'),
+        children: [{ id: 3, type: 'print', value: ref('n') }] }] },
+  (r, e) => { noErr(e); eq(r.output, ['1', '2'], 'iterated'); });
+
+// ===========================================================================
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
