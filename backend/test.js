@@ -747,5 +747,104 @@ t('#28  a list drives a for-in loop',
   (r, e) => { noErr(e); eq(r.output, ['1', '2'], 'iterated'); });
 
 // ===========================================================================
+// #29  Set literals — { type:'set', items:[...] }. Duplicates collapse and
+//      elements must be hashable; a mutable element is a TypeError.
+// ===========================================================================
+
+const set = (...items) => ({ type: 'set', items });
+
+t('#29  a set assigns and serializes to its members',
+  { blocks: [{ id: 200, type: 'variable', name: 'numbers',
+      value: set(lit('int', 1), lit('int', 2), lit('int', 3)) }] },
+  (r, e) => { noErr(e); eq(r.variables.numbers, [1, 2, 3], 'numbers'); });
+
+t('#29  duplicate elements collapse',
+  { blocks: [{ id: 1, type: 'variable', name: 's',
+      value: set(lit('int', 1), lit('int', 2), lit('int', 2), lit('int', 1)) }] },
+  (r, e) => { noErr(e); eq(r.variables.s, [1, 2], 'deduped'); });
+
+t('#29  an empty set prints as set()',
+  { blocks: [{ id: 1, type: 'print', value: { type: 'set' } }] },
+  (r, e) => { noErr(e); eq(r.output, ['set()'], 'empty set repr'); });
+
+t('#29  a set prints with braces',
+  { blocks: [{ id: 1, type: 'print', value: set(lit('int', 1), lit('int', 2)) }] },
+  (r, e) => { noErr(e); eq(r.output, ['{1, 2}'], 'set repr'); });
+
+t('#29  a mutable (list) element is an unhashable TypeError',
+  { blocks: [{ id: 1, type: 'variable', name: 'bad',
+      value: set({ type: 'array', items: [lit('int', 1)] }) }] },
+  (r) => {
+      const e = r.results.find(x => x.id === 1);
+      if (!e || e.errorType !== 'TypeError' || !/unhashable type: 'list'/.test(e.message)) {
+          throw new Error(`unexpected: ${JSON.stringify(e)}`);
+      }
+  });
+
+// ===========================================================================
+// #30  Dict literals — { type:'dictionary', entries:[{ key, value }, ...] }.
+//      Keys must be immutable; a mutable key raises KeyError (this language's
+//      chosen wording). A repeated key is last-wins.
+// ===========================================================================
+
+const entry = (key, value) => ({ key, value });
+const dict = (...entries) => ({ type: 'dictionary', entries });
+
+t('#30  a dict assigns and serializes to an object',
+  { blocks: [{ id: 300, type: 'variable', name: 'person', value: dict(
+      entry(lit('string', 'name'), lit('string', 'Alex')),
+      entry(lit('string', 'age'), lit('int', 20))) }] },
+  (r, e) => { noErr(e); eq(r.variables.person, { name: 'Alex', age: 20 }, 'person'); });
+
+t('#30  an empty dict prints as {}',
+  { blocks: [{ id: 1, type: 'print', value: { type: 'dictionary' } }] },
+  (r, e) => { noErr(e); eq(r.output, ['{}'], 'empty dict repr'); });
+
+t('#30  a dict prints Python-style with quoted string keys/values',
+  { blocks: [{ id: 1, type: 'print', value: dict(
+      entry(lit('string', 'name'), lit('string', 'Alex')),
+      entry(lit('string', 'age'), lit('int', 20))) }] },
+  (r, e) => { noErr(e); eq(r.output, ["{'name': 'Alex', 'age': 20}"], 'dict repr'); });
+
+t('#30  values may be computed expressions and variable reads',
+  { blocks: [
+      { id: 1, type: 'variable', name: 'base', value: lit('int', 10) },
+      { id: 2, type: 'variable', name: 'd', value: dict(
+          entry(lit('string', 'x'), ref('base')),
+          entry(lit('string', 'y'), calc(lit('int', 2), '+', lit('int', 3)))) }] },
+  (r, e) => { noErr(e); eq(r.variables.d, { x: 10, y: 5 }, 'computed dict'); });
+
+t('#30  a repeated key is last-wins',
+  { blocks: [{ id: 1, type: 'variable', name: 'd', value: dict(
+      entry(lit('string', 'k'), lit('int', 1)),
+      entry(lit('string', 'k'), lit('int', 2))) }] },
+  (r, e) => { noErr(e); eq(r.variables.d, { k: 2 }, 'last wins'); });
+
+t('#30  a non-string (int) key is allowed and serialized by its str',
+  { blocks: [{ id: 1, type: 'variable', name: 'd', value: dict(
+      entry(lit('int', 1), lit('string', 'one'))) }] },
+  (r, e) => { noErr(e); eq(r.variables.d, { '1': 'one' }, 'int key'); });
+
+t('#30  a mutable (list) key raises KeyError',
+  { blocks: [{ id: 1, type: 'variable', name: 'bad', value: dict(
+      entry({ type: 'array', items: [lit('int', 1)] }, lit('string', 'v'))) }] },
+  (r) => {
+      const e = r.results.find(x => x.id === 1);
+      if (!e || e.errorType !== 'KeyError' || !/unhashable type: 'list'/.test(e.message)) {
+          throw new Error(`unexpected: ${JSON.stringify(e)}`);
+      }
+  });
+
+t('#30  a dict as a key is also rejected with KeyError',
+  { blocks: [{ id: 1, type: 'variable', name: 'bad', value: dict(
+      entry(dict(entry(lit('string', 'a'), lit('int', 1))), lit('int', 9))) }] },
+  (r) => {
+      const e = r.results.find(x => x.id === 1);
+      if (!e || e.errorType !== 'KeyError' || !/unhashable type: 'dict'/.test(e.message)) {
+          throw new Error(`unexpected: ${JSON.stringify(e)}`);
+      }
+  });
+
+// ===========================================================================
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

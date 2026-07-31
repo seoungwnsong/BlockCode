@@ -3,7 +3,7 @@ const {
 } = require('./flowstatement');
 const { BinaryOperator, Compare, BoolOp } = require('./operations');
 const { num, Booleans, Strings } = require('./permitivedatatypes');
-const { PyList } = require('./object');                          // composite types
+const { PyList, PySet, PyDict, serializeValue } = require('./object');   // composite types
 const { parse } = require('./parser');
 const { UserFunction, Return, Call } = require('./function');   // #11, #12, #13
 const { NameError, ValueError } = require('./errors');          // B4
@@ -162,6 +162,27 @@ function toExpr(block) {
         case 'list': {
             const items = Array.isArray(block.items) ? block.items : [];
             return new PyList(items.map(toExpr));
+        }
+
+        // A set literal: { type:'set', items:[ <value block>, ... ] }.
+        // Duplicates collapse and elements must be hashable — see PySet.
+        case 'set': {
+            const items = Array.isArray(block.items) ? block.items : [];
+            return new PySet(items.map(toExpr));
+        }
+
+        // A dict literal: { type:'dictionary', entries:[ { key, value }, ... ] }.
+        // Each key and value is its own value block. Keys must be immutable —
+        // see PyDict, which raises KeyError on a mutable key.
+        case 'dictionary':
+        case 'dict': {
+            const entries = Array.isArray(block.entries) ? block.entries : [];
+            return new PyDict(entries.map(entry => {
+                if (!entry || typeof entry !== 'object' || entry.key === undefined) {
+                    throw new ValueError('dictionary entry requires a "key" and a "value"');
+                }
+                return { key: toExpr(entry.key), value: toExpr(entry.value) };
+            }));
         }
 
         // #5: the frontend reads a variable with { type:'variableReference', name }.
@@ -530,8 +551,13 @@ function runProgram(program) {
 
     // #21: env -> UserFunction -> globalEnv -> env is a cycle. Sending it to
     // res.json() throws "Converting circular structure to JSON".
+    // serializeValue unwraps Set -> array and Map -> object so the response is
+    // real JSON instead of the bare {} res.json() makes of a Set/Map. Scalars
+    // and lists pass through unchanged.
     const variables = Object.fromEntries(
-        Object.entries(env).filter(([, value]) => !(value instanceof UserFunction))
+        Object.entries(env)
+            .filter(([, value]) => !(value instanceof UserFunction))
+            .map(([name, value]) => [name, serializeValue(value)])
     );
 
     return { variables, output, results };
