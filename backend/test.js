@@ -846,5 +846,83 @@ t('#30  a dict as a key is also rejected with KeyError',
   });
 
 // ===========================================================================
+// #31  Built-in functions — one block shape for all:
+//      { type:'builtinCall', name, args:[ <value block>, ... ] }.
+// ===========================================================================
+
+const bi = (name, ...args) => ({ type: 'builtinCall', name, args });
+// evaluate a single builtin expression by assigning it and reading the variable
+const evalBI = (valueBlock) => ({ blocks: [{ id: 1, type: 'variable', name: 'r', value: valueBlock }] });
+const printBI = (valueBlock) => ({ blocks: [{ id: 1, type: 'print', value: valueBlock }] });
+
+// --- len / type -----------------------------------------------------------
+t('#31  len of a list',   evalBI(bi('len', arr(lit('int', 1), lit('int', 2), lit('int', 3)))),
+  (r, e) => { noErr(e); eq(r.variables.r, 3, 'len'); });
+t('#31  len of a string', evalBI(bi('len', lit('string', 'hello'))),
+  (r, e) => { noErr(e); eq(r.variables.r, 5, 'len str'); });
+t('#31  len of a dict',   evalBI(bi('len', dict(entry(lit('string', 'a'), lit('int', 1))))),
+  (r, e) => { noErr(e); eq(r.variables.r, 1, 'len dict'); });
+t('#31  len of an int is a TypeError', evalBI(bi('len', lit('int', 5))),
+  (r, e) => { if (!e.length || e[0].errorType !== 'TypeError' || !/has no len\(\)/.test(e[0].message)) throw new Error('expected len TypeError'); });
+t('#31  type reports the type name', evalBI(bi('type', arr(lit('int', 1)))),
+  (r, e) => { noErr(e); eq(r.variables.r, 'list', 'type'); });
+
+// --- conversions ----------------------------------------------------------
+t('#31  int truncates a float',        evalBI(bi('int', lit('float', 3.9))),  (r, e) => { noErr(e); eq(r.variables.r, 3, 'int'); });
+t('#31  int parses a string',          evalBI(bi('int', lit('string', '42'))), (r, e) => { noErr(e); eq(r.variables.r, 42, 'int str'); });
+t('#31  int of a bad string is ValueError', evalBI(bi('int', lit('string', 'abc'))),
+  (r, e) => { if (!e.length || e[0].errorType !== 'ValueError' || !/invalid literal for int/.test(e[0].message)) throw new Error('expected ValueError'); });
+t('#31  float of a string',            evalBI(bi('float', lit('string', '3.5'))), (r, e) => { noErr(e); eq(r.variables.r, 3.5, 'float'); });
+t('#31  str of a list is its repr',    printBI(bi('str', arr(lit('int', 1), lit('int', 2)))), (r, e) => { noErr(e); eq(r.output, ['[1, 2]'], 'str'); });
+t('#31  bool of an empty list is False', evalBI(bi('bool', { type: 'array' })), (r, e) => { noErr(e); eq(r.variables.r, false, 'bool'); });
+t('#31  bool of a non-empty string is True', evalBI(bi('bool', lit('string', 'x'))), (r, e) => { noErr(e); eq(r.variables.r, true, 'bool'); });
+t('#31  list of a string splits chars', evalBI(bi('list', lit('string', 'abc'))), (r, e) => { noErr(e); eq(r.variables.r, ['a', 'b', 'c'], 'list'); });
+t('#31  tuple prints with parens',      printBI(bi('tuple', arr(lit('int', 1), lit('int', 2)))), (r, e) => { noErr(e); eq(r.output, ['(1, 2)'], 'tuple'); });
+t('#31  a one-element tuple keeps the trailing comma', printBI(bi('tuple', arr(lit('int', 1)))), (r, e) => { noErr(e); eq(r.output, ['(1,)'], 'singleton tuple'); });
+t('#31  type of a tuple is tuple',      evalBI(bi('type', bi('tuple', arr(lit('int', 1))))), (r, e) => { noErr(e); eq(r.variables.r, 'tuple', 'tuple type'); });
+t('#31  set drops duplicates',          evalBI(bi('set', arr(lit('int', 1), lit('int', 1), lit('int', 2)))), (r, e) => { noErr(e); eq(r.variables.r, [1, 2], 'set'); });
+t('#31  dict from a list of pairs',     evalBI(bi('dict', arr(arr(lit('string', 'a'), lit('int', 1)), arr(lit('string', 'b'), lit('int', 2))))),
+  (r, e) => { noErr(e); eq(r.variables.r, { a: 1, b: 2 }, 'dict'); });
+
+// --- numeric --------------------------------------------------------------
+t('#31  abs of a negative',   evalBI(bi('abs', calc(lit('int', 0), '-', lit('int', 7)))), (r, e) => { noErr(e); eq(r.variables.r, 7, 'abs'); });
+t('#31  abs of a string is a TypeError', evalBI(bi('abs', lit('string', 'x'))),
+  (r, e) => { if (!e.length || e[0].errorType !== 'TypeError') throw new Error('expected abs TypeError'); });
+t('#31  round to nearest int',       evalBI(bi('round', lit('float', 3.4))),  (r, e) => { noErr(e); eq(r.variables.r, 3, 'round'); });
+t('#31  round is half-to-even',      evalBI(bi('round', lit('float', 2.5))),  (r, e) => { noErr(e); eq(r.variables.r, 2, 'banker'); });
+t('#31  round with digits',          evalBI(bi('round', lit('float', 3.14159), lit('int', 2))), (r, e) => { noErr(e); eq(r.variables.r, 3.14, 'round 2'); });
+
+// --- aggregate ------------------------------------------------------------
+t('#31  min of several values',  evalBI(bi('min', lit('int', 3), lit('int', 1), lit('int', 2))), (r, e) => { noErr(e); eq(r.variables.r, 1, 'min'); });
+t('#31  max of a list',          evalBI(bi('max', arr(lit('int', 3), lit('int', 9), lit('int', 2)))), (r, e) => { noErr(e); eq(r.variables.r, 9, 'max'); });
+t('#31  max compares lists lexicographically',
+  evalBI(bi('max', arr(lit('int', 20), lit('int', 10)), arr(lit('int', 10), lit('int', 100)))),
+  (r, e) => { noErr(e); eq(r.variables.r, [20, 10], 'list max'); });
+t('#31  min of an empty sequence is a ValueError', evalBI(bi('min', { type: 'array' })),
+  (r, e) => { if (!e.length || e[0].errorType !== 'ValueError' || !/empty sequence/.test(e[0].message)) throw new Error('expected empty ValueError'); });
+t('#31  min of incomparable types is a TypeError', evalBI(bi('min', lit('int', 1), lit('string', 'a'))),
+  (r, e) => { if (!e.length || e[0].errorType !== 'TypeError') throw new Error('expected order TypeError'); });
+t('#31  sum of a list',          evalBI(bi('sum', arr(lit('int', 1), lit('int', 2), lit('int', 3)))), (r, e) => { noErr(e); eq(r.variables.r, 6, 'sum'); });
+t('#31  sum of an empty list is 0', evalBI(bi('sum', { type: 'array' })), (r, e) => { noErr(e); eq(r.variables.r, 0, 'sum empty'); });
+t('#31  sorted returns a new sorted list', evalBI(bi('sorted', arr(lit('int', 3), lit('int', 1), lit('int', 2)))),
+  (r, e) => { noErr(e); eq(r.variables.r, [1, 2, 3], 'sorted'); });
+t('#31  sorted of a string sorts its chars', evalBI(bi('sorted', lit('string', 'cba'))),
+  (r, e) => { noErr(e); eq(r.variables.r, ['a', 'b', 'c'], 'sorted str'); });
+
+// --- misc -----------------------------------------------------------------
+t('#31  builtins nest and compose', evalBI(bi('sum', bi('sorted', arr(lit('int', 3), lit('int', 1))))),
+  (r, e) => { noErr(e); eq(r.variables.r, 4, 'nested'); });
+t('#31  an unknown builtin is a NameError', evalBI(bi('frobnicate', lit('int', 1))),
+  (r, e) => { if (!e.length || e[0].errorType !== 'NameError') throw new Error('expected NameError'); });
+t('#31  wrong argument count is a TypeError', evalBI(bi('len', lit('int', 1), lit('int', 2))),
+  (r, e) => { if (!e.length || e[0].errorType !== 'TypeError' || !/takes exactly 1 argument/.test(e[0].message)) throw new Error('expected argc TypeError'); });
+t('#31  the len(numbers) example from the spec',
+  { blocks: [
+      { id: 1, type: 'variable', name: 'numbers', value: arr(lit('int', 1), lit('int', 2), lit('int', 3)) },
+      { id: 100, type: 'variable', name: 'n', value: { id: 100, type: 'builtinCall', name: 'len',
+          args: [{ id: 101, type: 'variableReference', name: 'numbers' }] } }] },
+  (r, e) => { noErr(e); eq(r.variables.n, 3, 'len(numbers)'); });
+
+// ===========================================================================
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -65,6 +65,9 @@ function typeName(v) {
     if (Array.isArray(v))       return 'list';
     if (v instanceof Set)       return 'set';
     if (v instanceof Map)       return 'dict';
+    // PyTuple lives in object.js, which imports THIS file — so it is detected by
+    // a duck-typed marker rather than an instanceof, to avoid a require cycle.
+    if (v && v.isPyTuple)       return 'tuple';
     return 'object';
 }
 

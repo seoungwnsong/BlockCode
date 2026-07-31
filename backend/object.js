@@ -3,33 +3,46 @@
 // permitivedatatypes.js holds the SCALAR values — int, float, bool, str — each
 // a leaf that evaluates to itself. This file holds the values built OUT of other
 // values: the ones whose block carries child expression blocks rather than a
-// single raw literal. List, set and dict live here; tuple is the natural next
-// tenant, which is why the file is named for the general category.
+// single raw literal. List, set, dict and tuple live here.
 //
-// The shared shape: a composite node keeps its children as UN-evaluated Expr
-// nodes and evaluates them lazily inside evaluate(env). That is what lets these
-// containers hold not just literals but variable reads and full calculations —
+// The shared shape for the LITERAL nodes (PyList/PySet/PyDict): a composite node
+// keeps its children as UN-evaluated Expr nodes and evaluates them lazily inside
+// evaluate(env). That is what lets these containers hold not just literals but
+// variable reads and full calculations —
 //   numbers = [a, b + 1, len(xs)]
 // each element is any expression toExpr() can build.
 //
 // Runtime representation mirrors Python's own value model:
-//   list -> JS Array,  set -> JS Set,  dict -> JS Map.
-// Set and Map are chosen over plainer structures because they hash primitives
-// by VALUE — and int/float/bool/str (the only hashable types this language has)
-// are all JS primitives, so {1, 1} collapses to {1} and a duplicate dict key
-// overwrites, exactly as in Python. The moment a tuple type is added it will
-// need explicit value-hashing, since JS hashes arrays by reference.
+//   list -> JS Array,  set -> JS Set,  dict -> JS Map,  tuple -> PyTuple.
+// Set and Map are chosen because they hash primitives by VALUE — and
+// int/float/bool/str (the only hashable scalars) are all JS primitives, so
+// {1, 1} collapses to {1} and a duplicate dict key overwrites, exactly as in
+// Python. A tuple has no native JS equivalent, so PyTuple is a thin immutable
+// wrapper produced by the tuple() builtin; there is no tuple LITERAL block yet.
 
 const { Expr } = require('./permitivedatatypes');
 const { KeyError, typeName } = require('./errors');
 
 // The mutable (therefore un-hashable) runtime values: a list, a set, a dict.
 // Everything else this language can produce — numbers, strings, booleans, None,
-// and function objects — is immutable and so may key a dict or join a set.
-// Python hashability is exactly this immutability line, which is why the check
-// is shared by both the set and the dict constructors below.
+// tuples and function objects — is immutable and so may key a dict or join a
+// set. (A tuple of mutable elements is technically un-hashable in Python; that
+// edge is not modelled — a PyTuple is treated as immutable throughout.)
 function isMutable(value) {
     return Array.isArray(value) || value instanceof Set || value instanceof Map;
+}
+
+// An immutable tuple value. `items` are already-EVALUATED runtime values (unlike
+// the literal nodes above, which hold Expr nodes) because the only producer so
+// far is the tuple() builtin, which converts an existing iterable. isPyTuple is a
+// prototype getter, not an own property, so it tags the value for typeName()
+// without ever appearing in JSON output.
+class PyTuple {
+    constructor(items = []) {
+        this.items = items;
+    }
+    get isPyTuple() { return true; }
+    toString() { return pyRepr(this); }
 }
 
 // A Python list. `items` is an array of Expr nodes; evaluating the list
@@ -45,11 +58,11 @@ class PyList extends Expr {
     toString() { return pyRepr(this.evaluate()); }
 }
 
-// A Python set: unordered, no duplicates, elements must be hashable. `items` is
-// an array of Expr nodes. Evaluating returns a JS Set, whose value-equality on
-// primitives gives Python's de-duplication for free. A mutable element is
-// un-hashable and raises TypeError with Python's own wording — a set has
-// elements, not keys, so KeyError (the dict rule) would not read correctly here.
+// A Python set: unordered, no duplicates, elements must be hashable. Evaluating
+// returns a JS Set, whose value-equality on primitives gives Python's
+// de-duplication for free. A mutable element is un-hashable and raises TypeError
+// with Python's own wording — a set has elements, not keys, so KeyError (the
+// dict rule) would not read correctly here.
 class PySet extends Expr {
     constructor(items = []) {
         super();
@@ -71,12 +84,11 @@ class PySet extends Expr {
 
 // A Python dict. `entries` is an array of { key: Expr, value: Expr }. Evaluating
 // returns a JS Map. A KEY must be immutable: an expression may compute to any
-// value (and a function object is a valid, hashable key), but if the key
-// evaluates to a mutable value — a list, set or dict — that is rejected. Per the
-// language's rule this raises KeyError (Python itself raises TypeError:
-// unhashable type here; KeyError is this language's chosen wording). The key is
-// checked before its value is evaluated, so a bad key fails fast. A repeated key
-// overwrites, last-wins, as Map.set and Python both do.
+// value (and a function object is a valid, hashable key), but a mutable key — a
+// list, set or dict — is rejected. Per the language's rule this raises KeyError
+// (Python itself raises TypeError: unhashable type here; KeyError is this
+// language's chosen wording). The key is checked before its value is evaluated.
+// A repeated key overwrites, last-wins, as Map.set and Python both do.
 class PyDict extends Expr {
     constructor(entries = []) {
         super();
@@ -96,8 +108,55 @@ class PyDict extends Expr {
     toString() { return pyRepr(this.evaluate()); }
 }
 
+// ---------------------------------------------------------------------------
+// Value-level helpers shared by the builtins (len/list/set/bool/…). They speak
+// the runtime value model — string, list, tuple, set, dict — not Expr nodes.
+// ---------------------------------------------------------------------------
+
+// len(x): the number of elements. Only the SIZED types have one; anything else
+// (int, float, bool, None, function) raises Python's "has no len()" TypeError.
+function lengthOf(value) {
+    if (typeof value === 'string') return value.length;
+    if (Array.isArray(value))      return value.length;
+    if (value instanceof PyTuple)  return value.items.length;
+    if (value instanceof Set)      return value.size;
+    if (value instanceof Map)      return value.size;
+    throw new TypeError(`object of type '${typeName(value)}' has no len()`);
+}
+
+// Iterate a value into a fresh JS array of its elements — what list()/set()/
+// tuple()/sorted()/sum()/min()/max() consume. A string yields its characters, a
+// dict yields its KEYS (as Python does), and a non-iterable raises TypeError.
+function iterate(value) {
+    if (typeof value === 'string') return [...value];
+    if (Array.isArray(value))      return value.slice();
+    if (value instanceof PyTuple)  return value.items.slice();
+    if (value instanceof Set)      return [...value];
+    if (value instanceof Map)      return [...value.keys()];
+    throw new TypeError(`'${typeName(value)}' object is not iterable`);
+}
+
+// Python truthiness — what bool(x) and any condition uses. Zero, empty string,
+// empty container and None are false; everything else (including a function) is
+// true.
+function pyBool(value) {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'number')  return value !== 0;
+    if (typeof value === 'string')  return value.length > 0;
+    if (value === null || value === undefined) return false;
+    if (Array.isArray(value))       return value.length > 0;
+    if (value instanceof PyTuple)   return value.items.length > 0;
+    if (value instanceof Set || value instanceof Map) return value.size > 0;
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// Rendering
+// ---------------------------------------------------------------------------
+
 // Python's repr for a runtime value, used when a container is printed or nested
-// in another. Strings are quoted; a list is [..], a set {..} (but the empty set
+// in another. Strings are quoted; a list is [..], a tuple (..) (with the
+// one-element (x,) special case and the empty ()), a set {..} (but the empty set
 // is set(), since {} is the empty dict), a dict {k: v, ..}. Elements and both
 // halves of a dict entry use repr, so nested strings stay quoted.
 function pyRepr(value) {
@@ -105,6 +164,11 @@ function pyRepr(value) {
     if (typeof value === 'boolean') return value ? 'True' : 'False';
     if (value === null || value === undefined) return 'None';
     if (Array.isArray(value)) return `[${value.map(pyRepr).join(', ')}]`;
+    if (value instanceof PyTuple) {
+        const items = value.items;
+        if (items.length === 1) return `(${pyRepr(items[0])},)`;
+        return `(${items.map(pyRepr).join(', ')})`;
+    }
     if (value instanceof Set) {
         return value.size === 0 ? 'set()' : `{${[...value].map(pyRepr).join(', ')}}`;
     }
@@ -120,21 +184,22 @@ function pyRepr(value) {
 function pyStr(value) {
     if (typeof value === 'boolean') return value ? 'True' : 'False';
     if (value === null || value === undefined) return 'None';
-    if (Array.isArray(value) || value instanceof Set || value instanceof Map) {
+    if (Array.isArray(value) || value instanceof PyTuple ||
+        value instanceof Set || value instanceof Map) {
         return pyRepr(value);
     }
     return String(value);
 }
 
 // Make a runtime value JSON-safe for the variables panel in the API response.
-// res.json() would turn a Set or Map into a bare {}, so they are unwrapped:
-// a set becomes an array of its members, a dict an object keyed by pyStr(key)
-// (string keys are the common case; a non-string key is stringified the way
-// print would show it). Scalars and lists pass through unchanged, so the
-// existing list output is untouched.
+// res.json() would turn a Set/Map/PyTuple into a bare {}, so they are unwrapped:
+// a set or tuple becomes an array of its members, a dict an object keyed by
+// pyStr(key) (string keys are the common case; a non-string key is stringified
+// the way print would show it). Scalars and lists pass through unchanged.
 function serializeValue(value) {
-    if (Array.isArray(value)) return value.map(serializeValue);
-    if (value instanceof Set)  return [...value].map(serializeValue);
+    if (Array.isArray(value))     return value.map(serializeValue);
+    if (value instanceof PyTuple) return value.items.map(serializeValue);
+    if (value instanceof Set)     return [...value].map(serializeValue);
     if (value instanceof Map) {
         const obj = {};
         for (const [k, v] of value) obj[pyStr(k)] = serializeValue(v);
@@ -143,4 +208,8 @@ function serializeValue(value) {
     return value;
 }
 
-module.exports = { PyList, PySet, PyDict, pyRepr, pyStr, serializeValue, isMutable };
+module.exports = {
+    PyList, PySet, PyDict, PyTuple,
+    pyRepr, pyStr, serializeValue, isMutable,
+    lengthOf, iterate, pyBool,
+};

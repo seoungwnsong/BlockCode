@@ -4,6 +4,7 @@ const {
 const { BinaryOperator, Compare, BoolOp } = require('./operations');
 const { num, Booleans, Strings } = require('./permitivedatatypes');
 const { PyList, PySet, PyDict, serializeValue } = require('./object');   // composite types
+const { isBuiltin, callBuiltin } = require('./builtins');        // len/type/int/…
 const { parse } = require('./parser');
 const { UserFunction, Return, Call } = require('./function');   // #11, #12, #13
 const { NameError, ValueError } = require('./errors');          // B4
@@ -266,6 +267,19 @@ function toExpr(block) {
         case 'call':
             return new Call(block.name, (block.args ?? []).map(toExpr));
 
+        // Built-in call — every built-in (len, type, int, abs, min, sorted, …)
+        // arrives under this one tag, distinguished by `name`. The args are
+        // evaluated here and the resulting VALUES handed to builtins.js; an
+        // unknown name is a NameError, exactly as Python treats an unbound name.
+        case 'builtinCall': {
+            const name = block.name;
+            if (!isBuiltin(name)) {
+                throw new NameError(`name '${name}' is not defined`);
+            }
+            const argExprs = (block.args ?? []).map(toExpr);
+            return { evaluate: (env) => callBuiltin(name, argExprs.map(e => e.evaluate(env))) };
+        }
+
         default:
             // Inline literal carrying dataType beside value
             if (block.dataType !== undefined) return literalExpr(block.dataType, block.value);
@@ -472,6 +486,7 @@ function makeToStmt(output) {
             case 'logic':
             case 'comparisonChain':
             case 'call':
+            case 'builtinCall':
                 return new ExpressionStatement(toExpr(block));
 
             default:
