@@ -3339,3 +3339,148 @@ textarea {
   }
 }
 
+
+
+/* =========================================================
+   BUILT-IN SECTION COLOURS
+   General = blue, Convert = mint, Numbers = yellow,
+   Collections = pink.
+   ========================================================= */
+
+.builtin-template-general {
+  --builtin-color: var(--brand-blue);
+  --builtin-border: #8eb8cf;
+  --builtin-text: #17384a;
+}
+
+.builtin-template-general:hover {
+  --builtin-color: #c7dfef;
+  --builtin-border: #9fc5da;
+  color: #102f40;
+}
+
+.builtin-template-convert {
+  --builtin-color: var(--brand-mint);
+  --builtin-border: #9bc9a6;
+  --builtin-text: #214a31;
+}
+
+.builtin-template-convert:hover {
+  --builtin-color: #d8efdd;
+  --builtin-border: #afd5b7;
+  color: #173923;
+}
+
+.builtin-template-numbers {
+  --builtin-color: var(--brand-yellow);
+  --builtin-border: #cfbd67;
+  --builtin-text: #514511;
+}
+
+.builtin-template-numbers:hover {
+  --builtin-color: #f1e5ae;
+  --builtin-border: #dacb7f;
+  color: #40370d;
+}
+
+.builtin-template-collections {
+  --builtin-color: var(--brand-pink);
+  --builtin-border: #c99fa1;
+  --builtin-text: #542f31;
+}
+
+.builtin-template-collections:hover {
+  --builtin-color: #efd4d5;
+  --builtin-border: #d5b1b3;
+  color: #432426;
+}
+
+/* Keep the parentheses readable in every section. */
+.builtin-template-general .builtin-template-parentheses {
+  color: rgba(23, 56, 74, 0.68);
+}
+
+.builtin-template-convert .builtin-template-parentheses {
+  color: rgba(33, 74, 49, 0.68);
+}
+
+.builtin-template-numbers .builtin-template-parentheses {
+  color: rgba(81, 69, 17, 0.68);
+}
+
+.builtin-template-collections .builtin-template-parentheses {
+  color: rgba(84, 47, 49, 0.68);
+}
+
+/* Section heading accents. */
+.builtin-group-general h2 {
+  color: #a9cfe4;
+}
+
+.builtin-group-convert h2 {
+  color: #b7ddc0;
+}
+
+.builtin-group-numbers h2 {
+  color: #e6d98f;
+}
+
+.builtin-group-collections h2 {
+  color: #dfb9bb;
+}
+
+/* Placed and nested General built-ins. */
+.builtinCall-block.builtin-call-general,
+.nested-expression.builtin-call-expression.builtin-call-general {
+  background: var(--brand-blue);
+  --slot-bg: #eaf4fa;
+  --slot-border: #c8e0ee;
+  --slot-text: #183b50;
+  --slot-placeholder: #64748b;
+}
+
+.builtin-call-general .builtin-call-name {
+  color: #17384a;
+}
+
+/* Placed and nested Convert built-ins. */
+.builtinCall-block.builtin-call-convert,
+.nested-expression.builtin-call-expression.builtin-call-convert {
+  background: var(--brand-mint);
+  --slot-bg: #edf8ef;
+  --slot-border: #cce8d2;
+  --slot-text: #214a31;
+  --slot-placeholder: #64748b;
+}
+
+.builtin-call-convert .builtin-call-name {
+  color: #214a31;
+}
+
+/* Placed and nested Number built-ins. */
+.builtinCall-block.builtin-call-numbers,
+.nested-expression.builtin-call-expression.builtin-call-numbers {
+  background: var(--brand-yellow);
+  --slot-bg: #fbf6dd;
+  --slot-border: #eee2aa;
+  --slot-text: #514511;
+  --slot-placeholder: #6b7280;
+}
+
+.builtin-call-numbers .builtin-call-name {
+  color: #514511;
+}
+
+/* Placed and nested Collection built-ins. */
+.builtinCall-block.builtin-call-collections,
+.nested-expression.builtin-call-expression.builtin-call-collections {
+  background: var(--brand-pink);
+  --slot-bg: #f8e9ea;
+  --slot-border: #eccfd0;
+  --slot-text: #542f31;
+  --slot-placeholder: #6b7280;
+}
+
+.builtin-call-collections .builtin-call-name {
+  color: #542f31;
+}
