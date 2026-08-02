@@ -31,9 +31,9 @@ class ValueError extends Error {
     }
 }
 
-// Defined but not yet raised anywhere: the language has no attribute access,
-// no indexing and no dict type, so nothing can currently produce these.
-// They are here so the taxonomy is already agreed on when those land.
+// AttributeError / IndexError are defined but not yet raised anywhere: the
+// language has no attribute access and no indexing yet. KeyError, by contrast,
+// IS now raised — a dict rejects a mutable (unhashable) key with it (object.js).
 class AttributeError extends Error {
     constructor(message) {
         super(message);
@@ -63,6 +63,11 @@ function typeName(v) {
     if (typeof v === 'boolean') return 'bool';
     if (typeof v === 'number')  return Number.isInteger(v) ? 'int' : 'float';
     if (Array.isArray(v))       return 'list';
+    if (v instanceof Set)       return 'set';
+    if (v instanceof Map)       return 'dict';
+    // PyTuple lives in object.js, which imports THIS file — so it is detected by
+    // a duck-typed marker rather than an instanceof, to avoid a require cycle.
+    if (v && v.isPyTuple)       return 'tuple';
     return 'object';
 }
 

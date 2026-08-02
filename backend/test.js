@@ -697,5 +697,232 @@ t('#27  a valid reference to a defined variable still works',
   (r, e) => { noErr(e); eq(r.variables.x, 9, 'x = y'); });
 
 // ===========================================================================
+// #28  List / array literals — { type:'array', items:[ <value block>, ... ] }.
+//      Each item is any value block, so a list may hold literals, variable
+//      reads, calculations or nested lists. Printing a list uses Python's repr.
+// ===========================================================================
+
+const arr = (...items) => ({ type: 'array', items });
+
+t('#28  a list of int literals assigns as a JS array',
+  { blocks: [{ id: 99, type: 'variable', name: 'numbers',
+      value: arr(lit('int', 1), lit('int', 2), lit('int', 3)) }] },
+  (r, e) => { noErr(e); eq(r.variables.numbers, [1, 2, 3], 'numbers'); });
+
+t('#28  an empty list is []',
+  { blocks: [{ id: 1, type: 'variable', name: 'xs', value: { type: 'array' } }] },
+  (r, e) => { noErr(e); eq(r.variables.xs, [], 'empty list'); });
+
+t('#28  list elements can be variable reads and calculations',
+  { blocks: [
+      { id: 1, type: 'variable', name: 'a', value: lit('int', 10) },
+      { id: 2, type: 'variable', name: 'ys',
+        value: arr(ref('a'), calc(lit('int', 2), '+', lit('int', 3))) }] },
+  (r, e) => { noErr(e); eq(r.variables.ys, [10, 5], 'ys'); });
+
+t('#28  lists nest',
+  { blocks: [{ id: 1, type: 'variable', name: 'grid',
+      value: arr(arr(lit('int', 1), lit('int', 2)), arr(lit('int', 3))) }] },
+  (r, e) => { noErr(e); eq(r.variables.grid, [[1, 2], [3]], 'grid'); });
+
+t('#28  printing a list uses Python repr, strings quoted',
+  { blocks: [{ id: 1, type: 'print',
+      value: arr(lit('int', 1), lit('string', 'a'), lit('bool', true)) }] },
+  (r, e) => { noErr(e); eq(r.output, ["[1, 'a', True]"], 'repr'); });
+
+t('#28  a bad element halts the list with its own error',
+  { blocks: [{ id: 1, type: 'variable', name: 'z', value: arr(ref('missing')) }] },
+  (r) => {
+      const e = r.results.find(x => x.id === 1);
+      if (!e || e.errorType !== 'NameError' || !/name 'missing' is not defined/.test(e.message)) {
+          throw new Error(`unexpected: ${JSON.stringify(e)}`);
+      }
+  });
+
+t('#28  a list drives a for-in loop',
+  { blocks: [
+      { id: 1, type: 'variable', name: 'items', value: arr(lit('int', 1), lit('int', 2)) },
+      { id: 2, type: 'forIn', variable: 'n', iterable: ref('items'),
+        children: [{ id: 3, type: 'print', value: ref('n') }] }] },
+  (r, e) => { noErr(e); eq(r.output, ['1', '2'], 'iterated'); });
+
+// ===========================================================================
+// #29  Set literals — { type:'set', items:[...] }. Duplicates collapse and
+//      elements must be hashable; a mutable element is a TypeError.
+// ===========================================================================
+
+const set = (...items) => ({ type: 'set', items });
+
+t('#29  a set assigns and serializes to its members',
+  { blocks: [{ id: 200, type: 'variable', name: 'numbers',
+      value: set(lit('int', 1), lit('int', 2), lit('int', 3)) }] },
+  (r, e) => { noErr(e); eq(r.variables.numbers, [1, 2, 3], 'numbers'); });
+
+t('#29  duplicate elements collapse',
+  { blocks: [{ id: 1, type: 'variable', name: 's',
+      value: set(lit('int', 1), lit('int', 2), lit('int', 2), lit('int', 1)) }] },
+  (r, e) => { noErr(e); eq(r.variables.s, [1, 2], 'deduped'); });
+
+t('#29  an empty set prints as set()',
+  { blocks: [{ id: 1, type: 'print', value: { type: 'set' } }] },
+  (r, e) => { noErr(e); eq(r.output, ['set()'], 'empty set repr'); });
+
+t('#29  a set prints with braces',
+  { blocks: [{ id: 1, type: 'print', value: set(lit('int', 1), lit('int', 2)) }] },
+  (r, e) => { noErr(e); eq(r.output, ['{1, 2}'], 'set repr'); });
+
+t('#29  a mutable (list) element is an unhashable TypeError',
+  { blocks: [{ id: 1, type: 'variable', name: 'bad',
+      value: set({ type: 'array', items: [lit('int', 1)] }) }] },
+  (r) => {
+      const e = r.results.find(x => x.id === 1);
+      if (!e || e.errorType !== 'TypeError' || !/unhashable type: 'list'/.test(e.message)) {
+          throw new Error(`unexpected: ${JSON.stringify(e)}`);
+      }
+  });
+
+// ===========================================================================
+// #30  Dict literals — { type:'dictionary', entries:[{ key, value }, ...] }.
+//      Keys must be immutable; a mutable key raises KeyError (this language's
+//      chosen wording). A repeated key is last-wins.
+// ===========================================================================
+
+const entry = (key, value) => ({ key, value });
+const dict = (...entries) => ({ type: 'dictionary', entries });
+
+t('#30  a dict assigns and serializes to an object',
+  { blocks: [{ id: 300, type: 'variable', name: 'person', value: dict(
+      entry(lit('string', 'name'), lit('string', 'Alex')),
+      entry(lit('string', 'age'), lit('int', 20))) }] },
+  (r, e) => { noErr(e); eq(r.variables.person, { name: 'Alex', age: 20 }, 'person'); });
+
+t('#30  an empty dict prints as {}',
+  { blocks: [{ id: 1, type: 'print', value: { type: 'dictionary' } }] },
+  (r, e) => { noErr(e); eq(r.output, ['{}'], 'empty dict repr'); });
+
+t('#30  a dict prints Python-style with quoted string keys/values',
+  { blocks: [{ id: 1, type: 'print', value: dict(
+      entry(lit('string', 'name'), lit('string', 'Alex')),
+      entry(lit('string', 'age'), lit('int', 20))) }] },
+  (r, e) => { noErr(e); eq(r.output, ["{'name': 'Alex', 'age': 20}"], 'dict repr'); });
+
+t('#30  values may be computed expressions and variable reads',
+  { blocks: [
+      { id: 1, type: 'variable', name: 'base', value: lit('int', 10) },
+      { id: 2, type: 'variable', name: 'd', value: dict(
+          entry(lit('string', 'x'), ref('base')),
+          entry(lit('string', 'y'), calc(lit('int', 2), '+', lit('int', 3)))) }] },
+  (r, e) => { noErr(e); eq(r.variables.d, { x: 10, y: 5 }, 'computed dict'); });
+
+t('#30  a repeated key is last-wins',
+  { blocks: [{ id: 1, type: 'variable', name: 'd', value: dict(
+      entry(lit('string', 'k'), lit('int', 1)),
+      entry(lit('string', 'k'), lit('int', 2))) }] },
+  (r, e) => { noErr(e); eq(r.variables.d, { k: 2 }, 'last wins'); });
+
+t('#30  a non-string (int) key is allowed and serialized by its str',
+  { blocks: [{ id: 1, type: 'variable', name: 'd', value: dict(
+      entry(lit('int', 1), lit('string', 'one'))) }] },
+  (r, e) => { noErr(e); eq(r.variables.d, { '1': 'one' }, 'int key'); });
+
+t('#30  a mutable (list) key raises KeyError',
+  { blocks: [{ id: 1, type: 'variable', name: 'bad', value: dict(
+      entry({ type: 'array', items: [lit('int', 1)] }, lit('string', 'v'))) }] },
+  (r) => {
+      const e = r.results.find(x => x.id === 1);
+      if (!e || e.errorType !== 'KeyError' || !/unhashable type: 'list'/.test(e.message)) {
+          throw new Error(`unexpected: ${JSON.stringify(e)}`);
+      }
+  });
+
+t('#30  a dict as a key is also rejected with KeyError',
+  { blocks: [{ id: 1, type: 'variable', name: 'bad', value: dict(
+      entry(dict(entry(lit('string', 'a'), lit('int', 1))), lit('int', 9))) }] },
+  (r) => {
+      const e = r.results.find(x => x.id === 1);
+      if (!e || e.errorType !== 'KeyError' || !/unhashable type: 'dict'/.test(e.message)) {
+          throw new Error(`unexpected: ${JSON.stringify(e)}`);
+      }
+  });
+
+// ===========================================================================
+// #31  Built-in functions — one block shape for all:
+//      { type:'builtinCall', name, args:[ <value block>, ... ] }.
+// ===========================================================================
+
+const bi = (name, ...args) => ({ type: 'builtinCall', name, args });
+// evaluate a single builtin expression by assigning it and reading the variable
+const evalBI = (valueBlock) => ({ blocks: [{ id: 1, type: 'variable', name: 'r', value: valueBlock }] });
+const printBI = (valueBlock) => ({ blocks: [{ id: 1, type: 'print', value: valueBlock }] });
+
+// --- len / type -----------------------------------------------------------
+t('#31  len of a list',   evalBI(bi('len', arr(lit('int', 1), lit('int', 2), lit('int', 3)))),
+  (r, e) => { noErr(e); eq(r.variables.r, 3, 'len'); });
+t('#31  len of a string', evalBI(bi('len', lit('string', 'hello'))),
+  (r, e) => { noErr(e); eq(r.variables.r, 5, 'len str'); });
+t('#31  len of a dict',   evalBI(bi('len', dict(entry(lit('string', 'a'), lit('int', 1))))),
+  (r, e) => { noErr(e); eq(r.variables.r, 1, 'len dict'); });
+t('#31  len of an int is a TypeError', evalBI(bi('len', lit('int', 5))),
+  (r, e) => { if (!e.length || e[0].errorType !== 'TypeError' || !/has no len\(\)/.test(e[0].message)) throw new Error('expected len TypeError'); });
+t('#31  type reports the type name', evalBI(bi('type', arr(lit('int', 1)))),
+  (r, e) => { noErr(e); eq(r.variables.r, 'list', 'type'); });
+
+// --- conversions ----------------------------------------------------------
+t('#31  int truncates a float',        evalBI(bi('int', lit('float', 3.9))),  (r, e) => { noErr(e); eq(r.variables.r, 3, 'int'); });
+t('#31  int parses a string',          evalBI(bi('int', lit('string', '42'))), (r, e) => { noErr(e); eq(r.variables.r, 42, 'int str'); });
+t('#31  int of a bad string is ValueError', evalBI(bi('int', lit('string', 'abc'))),
+  (r, e) => { if (!e.length || e[0].errorType !== 'ValueError' || !/invalid literal for int/.test(e[0].message)) throw new Error('expected ValueError'); });
+t('#31  float of a string',            evalBI(bi('float', lit('string', '3.5'))), (r, e) => { noErr(e); eq(r.variables.r, 3.5, 'float'); });
+t('#31  str of a list is its repr',    printBI(bi('str', arr(lit('int', 1), lit('int', 2)))), (r, e) => { noErr(e); eq(r.output, ['[1, 2]'], 'str'); });
+t('#31  bool of an empty list is False', evalBI(bi('bool', { type: 'array' })), (r, e) => { noErr(e); eq(r.variables.r, false, 'bool'); });
+t('#31  bool of a non-empty string is True', evalBI(bi('bool', lit('string', 'x'))), (r, e) => { noErr(e); eq(r.variables.r, true, 'bool'); });
+t('#31  list of a string splits chars', evalBI(bi('list', lit('string', 'abc'))), (r, e) => { noErr(e); eq(r.variables.r, ['a', 'b', 'c'], 'list'); });
+t('#31  tuple prints with parens',      printBI(bi('tuple', arr(lit('int', 1), lit('int', 2)))), (r, e) => { noErr(e); eq(r.output, ['(1, 2)'], 'tuple'); });
+t('#31  a one-element tuple keeps the trailing comma', printBI(bi('tuple', arr(lit('int', 1)))), (r, e) => { noErr(e); eq(r.output, ['(1,)'], 'singleton tuple'); });
+t('#31  type of a tuple is tuple',      evalBI(bi('type', bi('tuple', arr(lit('int', 1))))), (r, e) => { noErr(e); eq(r.variables.r, 'tuple', 'tuple type'); });
+t('#31  set drops duplicates',          evalBI(bi('set', arr(lit('int', 1), lit('int', 1), lit('int', 2)))), (r, e) => { noErr(e); eq(r.variables.r, [1, 2], 'set'); });
+t('#31  dict from a list of pairs',     evalBI(bi('dict', arr(arr(lit('string', 'a'), lit('int', 1)), arr(lit('string', 'b'), lit('int', 2))))),
+  (r, e) => { noErr(e); eq(r.variables.r, { a: 1, b: 2 }, 'dict'); });
+
+// --- numeric --------------------------------------------------------------
+t('#31  abs of a negative',   evalBI(bi('abs', calc(lit('int', 0), '-', lit('int', 7)))), (r, e) => { noErr(e); eq(r.variables.r, 7, 'abs'); });
+t('#31  abs of a string is a TypeError', evalBI(bi('abs', lit('string', 'x'))),
+  (r, e) => { if (!e.length || e[0].errorType !== 'TypeError') throw new Error('expected abs TypeError'); });
+t('#31  round to nearest int',       evalBI(bi('round', lit('float', 3.4))),  (r, e) => { noErr(e); eq(r.variables.r, 3, 'round'); });
+t('#31  round is half-to-even',      evalBI(bi('round', lit('float', 2.5))),  (r, e) => { noErr(e); eq(r.variables.r, 2, 'banker'); });
+t('#31  round with digits',          evalBI(bi('round', lit('float', 3.14159), lit('int', 2))), (r, e) => { noErr(e); eq(r.variables.r, 3.14, 'round 2'); });
+
+// --- aggregate ------------------------------------------------------------
+t('#31  min of several values',  evalBI(bi('min', lit('int', 3), lit('int', 1), lit('int', 2))), (r, e) => { noErr(e); eq(r.variables.r, 1, 'min'); });
+t('#31  max of a list',          evalBI(bi('max', arr(lit('int', 3), lit('int', 9), lit('int', 2)))), (r, e) => { noErr(e); eq(r.variables.r, 9, 'max'); });
+t('#31  max compares lists lexicographically',
+  evalBI(bi('max', arr(lit('int', 20), lit('int', 10)), arr(lit('int', 10), lit('int', 100)))),
+  (r, e) => { noErr(e); eq(r.variables.r, [20, 10], 'list max'); });
+t('#31  min of an empty sequence is a ValueError', evalBI(bi('min', { type: 'array' })),
+  (r, e) => { if (!e.length || e[0].errorType !== 'ValueError' || !/empty sequence/.test(e[0].message)) throw new Error('expected empty ValueError'); });
+t('#31  min of incomparable types is a TypeError', evalBI(bi('min', lit('int', 1), lit('string', 'a'))),
+  (r, e) => { if (!e.length || e[0].errorType !== 'TypeError') throw new Error('expected order TypeError'); });
+t('#31  sum of a list',          evalBI(bi('sum', arr(lit('int', 1), lit('int', 2), lit('int', 3)))), (r, e) => { noErr(e); eq(r.variables.r, 6, 'sum'); });
+t('#31  sum of an empty list is 0', evalBI(bi('sum', { type: 'array' })), (r, e) => { noErr(e); eq(r.variables.r, 0, 'sum empty'); });
+t('#31  sorted returns a new sorted list', evalBI(bi('sorted', arr(lit('int', 3), lit('int', 1), lit('int', 2)))),
+  (r, e) => { noErr(e); eq(r.variables.r, [1, 2, 3], 'sorted'); });
+t('#31  sorted of a string sorts its chars', evalBI(bi('sorted', lit('string', 'cba'))),
+  (r, e) => { noErr(e); eq(r.variables.r, ['a', 'b', 'c'], 'sorted str'); });
+
+// --- misc -----------------------------------------------------------------
+t('#31  builtins nest and compose', evalBI(bi('sum', bi('sorted', arr(lit('int', 3), lit('int', 1))))),
+  (r, e) => { noErr(e); eq(r.variables.r, 4, 'nested'); });
+t('#31  an unknown builtin is a NameError', evalBI(bi('frobnicate', lit('int', 1))),
+  (r, e) => { if (!e.length || e[0].errorType !== 'NameError') throw new Error('expected NameError'); });
+t('#31  wrong argument count is a TypeError', evalBI(bi('len', lit('int', 1), lit('int', 2))),
+  (r, e) => { if (!e.length || e[0].errorType !== 'TypeError' || !/takes exactly 1 argument/.test(e[0].message)) throw new Error('expected argc TypeError'); });
+t('#31  the len(numbers) example from the spec',
+  { blocks: [
+      { id: 1, type: 'variable', name: 'numbers', value: arr(lit('int', 1), lit('int', 2), lit('int', 3)) },
+      { id: 100, type: 'variable', name: 'n', value: { id: 100, type: 'builtinCall', name: 'len',
+          args: [{ id: 101, type: 'variableReference', name: 'numbers' }] } }] },
+  (r, e) => { noErr(e); eq(r.variables.n, 3, 'len(numbers)'); });
+
+// ===========================================================================
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

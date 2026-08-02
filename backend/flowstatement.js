@@ -2,6 +2,9 @@
 const { ReturnSignal } = require('./function');
 // errors.js imports nothing either.
 const { ValueError } = require('./errors');
+// pyStr renders a value the way Python's print() does — notably a list shows as
+// [1, 2, 3] rather than JS's "1,2,3", and booleans as True/False.
+const { pyStr } = require('./object');
 
 class Statement {
     evaluate() {}
@@ -81,7 +84,7 @@ class Print extends Statement {
         this.output = output;
     }
     evaluate(env) {
-        const text = String(this.value.evaluate(env));
+        const text = pyStr(this.value.evaluate(env));
         if (this.output) this.output.push(text);
         else console.log(text);
     }
