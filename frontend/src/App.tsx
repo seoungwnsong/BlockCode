@@ -5,7 +5,15 @@ import blockCodeLogo from "./assets/blockcode-logo.png";
 
 type DataType = "int" | "float" | "bool" | "string";
 type MathOperator = "+" | "-" | "*" | "/" | "%";
-type ComparisonOperator = "==" | "!=" | ">" | "<" | ">=" | "<=";
+type ComparisonOperator =
+  | "=="
+  | "!="
+  | ">"
+  | "<"
+  | ">="
+  | "<="
+  | "is"
+  | "is not";
 type LogicOperator = ComparisonOperator | "and" | "or";
 
 type LiteralExpression = {
@@ -238,6 +246,8 @@ const BLOCK_CATEGORIES: { id: BlockCategory; label: string; title: string }[] = 
 type BuiltinDefinition = {
   name: BuiltinFunctionName;
   argLabels: string[];
+  variadic?: boolean;
+  minimumArgs?: number;
 };
 
 type BuiltinGroup = {
@@ -276,8 +286,18 @@ const BUILTIN_GROUPS: BuiltinGroup[] = [
     functions: [
       { name: "abs", argLabels: ["number"] },
       { name: "round", argLabels: ["number", "digits"] },
-      { name: "min", argLabels: ["value 1", "value 2"] },
-      { name: "max", argLabels: ["value 1", "value 2"] },
+      {
+        name: "min",
+        argLabels: ["value 1", "value 2"],
+        variadic: true,
+        minimumArgs: 1,
+      },
+      {
+        name: "max",
+        argLabels: ["value 1", "value 2"],
+        variadic: true,
+        minimumArgs: 1,
+      },
       { name: "sum", argLabels: ["values"] },
     ],
   },
@@ -310,6 +330,28 @@ function getBuiltinGroupId(name: BuiltinFunctionName): BuiltinGroupId {
   }
 
   return "general";
+}
+
+function isVariadicBuiltin(name: BuiltinFunctionName) {
+  return getBuiltinDefinition(name).variadic === true;
+}
+
+function getBuiltinMinimumArgs(name: BuiltinFunctionName) {
+  return getBuiltinDefinition(name).minimumArgs ?? 0;
+}
+
+function getBuiltinArgumentLabel(
+  name: BuiltinFunctionName,
+  index: number
+) {
+  if (name === "min" || name === "max") {
+    return `value ${index + 1}`;
+  }
+
+  return (
+    getBuiltinDefinition(name).argLabels[index] ??
+    `arg ${index + 1}`
+  );
 }
 
 type ListDropTarget =
@@ -2865,6 +2907,62 @@ function App() {
     });
   }
 
+  function addBuiltinArgument(id: number) {
+    updateCurrentExpression(id, (expression) => {
+      if (
+        expression.type !== "builtinCall" ||
+        !isVariadicBuiltin(expression.name)
+      ) {
+        return expression;
+      }
+
+      const nextArgs = [
+        ...expression.args,
+        createAtomicExpression(),
+      ];
+
+      return {
+        ...expression,
+        args: nextArgs,
+        argLabels: nextArgs.map((_, index) =>
+          getBuiltinArgumentLabel(expression.name, index)
+        ),
+      };
+    });
+  }
+
+  function removeBuiltinArgument(id: number, index: number) {
+    updateCurrentExpression(id, (expression) => {
+      if (
+        expression.type !== "builtinCall" ||
+        !isVariadicBuiltin(expression.name)
+      ) {
+        return expression;
+      }
+
+      const minimumArgs = getBuiltinMinimumArgs(expression.name);
+
+      if (expression.args.length <= minimumArgs) {
+        return expression;
+      }
+
+      const nextArgs = expression.args.filter(
+        (_, argumentIndex) => argumentIndex !== index
+      );
+
+      return {
+        ...expression,
+        args: nextArgs,
+        argLabels: nextArgs.map((_, argumentIndex) =>
+          getBuiltinArgumentLabel(
+            expression.name,
+            argumentIndex
+          )
+        ),
+      };
+    });
+  }
+
   function addCollectionItem(id: number) {
     updateCurrentExpression(id, (expression) => {
       if (expression.type !== "array" && expression.type !== "set") {
@@ -3772,6 +3870,8 @@ function App() {
         <option value="<">&lt;</option>
         <option value=">=">&gt;=</option>
         <option value="<=">&lt;=</option>
+        <option value="is">is</option>
+        <option value="is not">is not</option>
       </>
     );
   }
@@ -4093,6 +4193,11 @@ function App() {
   }
 
   function renderBuiltinCallContent(expression: BuiltinCallExpression) {
+    const isVariadic = isVariadicBuiltin(expression.name);
+    const minimumArgs = getBuiltinMinimumArgs(expression.name);
+    const canRemoveArgument =
+      isVariadic && expression.args.length > minimumArgs;
+
     return (
       <div className="expression-content-row function-call-row builtin-call-row">
         <span className="function-call-name builtin-call-name">
@@ -4101,19 +4206,56 @@ function App() {
         <span>(</span>
 
         {expression.args.map((argument, index) => (
-          <div key={argument.id} className="function-argument-item">
+          <div
+            key={argument.id}
+            className="function-argument-item builtin-argument-item"
+          >
             {renderExpressionSlot(
               argument,
-              expression.argLabels[index] || `arg ${index + 1}`,
+              expression.argLabels[index] ||
+                getBuiltinArgumentLabel(expression.name, index),
               "function-argument-slot",
               78,
               170
             )}
+
+            {canRemoveArgument && (
+              <button
+                type="button"
+                className="remove-builtin-argument-button"
+                title={`Remove argument ${index + 1}`}
+                aria-label={`Remove argument ${index + 1}`}
+                onMouseDown={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  removeBuiltinArgument(expression.id, index);
+                }}
+              >
+                ×
+              </button>
+            )}
+
             {index < expression.args.length - 1 && <span>,</span>}
           </div>
         ))}
 
         <span>)</span>
+
+        {isVariadic && (
+          <button
+            type="button"
+            className="add-builtin-argument-button"
+            title={`Add another value to ${expression.name}()`}
+            aria-label={`Add another value to ${expression.name}()`}
+            onMouseDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              addBuiltinArgument(expression.id);
+            }}
+          >
+            +
+          </button>
+        )}
       </div>
     );
   }

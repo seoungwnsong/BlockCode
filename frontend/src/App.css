@@ -3484,3 +3484,206 @@ textarea {
 .builtin-call-collections .builtin-call-name {
   color: #542f31;
 }
+
+
+/* =========================================================
+   VARIABLE-ARGUMENT BUILT-INS
+   min() and max() start with two values and can grow.
+   ========================================================= */
+
+.builtin-argument-item {
+  position: relative;
+}
+
+.add-builtin-argument-button,
+.remove-builtin-argument-button {
+  flex: 0 0 auto;
+  border: 1px solid rgba(15, 23, 42, 0.18);
+  color: rgba(15, 23, 42, 0.78);
+  cursor: pointer;
+  font-family: var(--code-font);
+  font-weight: 850;
+  line-height: 1;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease,
+    border-color 0.12s ease,
+    transform 0.12s ease,
+    opacity 0.12s ease;
+}
+
+.add-builtin-argument-button {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  margin-left: 2px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.3);
+  font-size: 16px;
+  opacity: 0.72;
+}
+
+.remove-builtin-argument-button {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  margin-left: -1px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(127, 29, 29, 0.13);
+  color: rgba(127, 29, 29, 0.82);
+  font-size: 12px;
+  opacity: 0.48;
+}
+
+.builtinCall-block:hover .add-builtin-argument-button,
+.builtinCall-block:hover .remove-builtin-argument-button,
+.nested-expression.builtin-call-expression:hover
+  .add-builtin-argument-button,
+.nested-expression.builtin-call-expression:hover
+  .remove-builtin-argument-button {
+  opacity: 1;
+}
+
+.add-builtin-argument-button:hover {
+  background: rgba(255, 255, 255, 0.58);
+  border-color: rgba(15, 23, 42, 0.28);
+  transform: translateY(-1px);
+}
+
+.remove-builtin-argument-button:hover {
+  background: rgba(254, 202, 202, 0.88);
+  color: #991b1b;
+  transform: scale(1.06);
+}
+
+.add-builtin-argument-button:focus-visible,
+.remove-builtin-argument-button:focus-visible {
+  outline: 2px solid rgba(15, 23, 42, 0.28);
+  outline-offset: 1px;
+}
+
+/* =========================================================
+   FINAL CATEGORY COLOUR + SIDEBAR UI OVERRIDES
+   Each block category uses one consistent colour.
+   ========================================================= */
+
+/* Built-in section titles match the grey block-section headings. */
+.builtin-group h2,
+.builtin-group-general h2,
+.builtin-group-convert h2,
+.builtin-group-numbers h2,
+.builtin-group-collections h2 {
+  color: #8b95a7;
+}
+
+/* Basic: variable, print, and return share the same blue. */
+.variable-template,
+.print-template,
+.return-template {
+  background: var(--blue-block);
+}
+
+.variable-block,
+.print-block,
+.return-block {
+  background: var(--blue-block);
+  --slot-bg: #dbeafe;
+  --slot-border: #bfdbfe;
+  --slot-text: #1e3a8a;
+  --slot-placeholder: #475569;
+}
+
+/* Expressions: calculation and logic share the same purple. */
+.calculation-template,
+.logic-template {
+  background: var(--purple-block);
+}
+
+.calculation-block,
+.logic-block,
+.nested-expression.calculation-expression,
+.nested-expression.logic-expression {
+  background: var(--purple-block);
+  --slot-bg: #e9d5ff;
+  --slot-border: #d8b4fe;
+  --slot-text: #581c87;
+  --slot-placeholder: #5b5563;
+}
+
+/* Data: array/list, set, and dictionary share the same mint. */
+.array-template,
+.set-template,
+.dictionary-template {
+  background: var(--mint-block);
+}
+
+.array-block,
+.set-block,
+.dictionary-block,
+.nested-expression.collection-expression {
+  background: var(--mint-block);
+  --slot-bg: #ccfbf1;
+  --slot-border: #99f6e4;
+  --slot-text: #134e4a;
+  --slot-placeholder: #4b5563;
+}
+
+/* Flow: if, for, while, and try/catch share the same yellow. */
+.control-template,
+.try-template {
+  background: var(--yellow-block);
+}
+
+.if-block,
+.while-block,
+.for-block,
+.tryCatch-block {
+  background: var(--yellow-block);
+  --slot-bg: #fef3c7;
+  --slot-border: #fde68a;
+  --slot-text: #78350f;
+  --slot-placeholder: #6b7280;
+}
+
+/* Compact VS Code-style primary action. */
+.create-function-button {
+  width: 100%;
+  min-height: 32px;
+  margin: 0 0 14px;
+  padding: 6px 10px;
+
+  border: 1px solid #1177bb;
+  border-radius: 2px;
+  background: #0e639c;
+  color: #ffffff;
+  box-shadow: none;
+
+  font-family: Inter, Arial, sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
+
+  cursor: pointer;
+  transition:
+    background 0.1s ease,
+    border-color 0.1s ease;
+}
+
+.create-function-button:hover {
+  border-color: #1689d1;
+  background: #1177bb;
+  transform: none;
+}
+
+.create-function-button:active {
+  border-color: #0d5a8c;
+  background: #0d5a8c;
+  transform: none;
+}
+
+.create-function-button:focus-visible {
+  outline: 1px solid #ffffff;
+  outline-offset: 2px;
+}
