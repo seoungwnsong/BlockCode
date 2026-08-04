@@ -924,5 +924,168 @@ t('#31  the len(numbers) example from the spec',
   (r, e) => { noErr(e); eq(r.variables.n, 3, 'len(numbers)'); });
 
 // ===========================================================================
+// #32  Runtime identity — id(), `is` / `is not`. The `id` fields in the block
+//      JSON are editor ids; runtime identity is minted separately by the
+//      interpreter. Equal immutable scalars share identity; separately built
+//      lists/sets/dicts/tuples do not; assignment (and tuple() of a tuple)
+//      preserves it.
+// ===========================================================================
+
+const isOp    = (left, right) => ({ type: 'logic', left, operator: 'is', right });
+const isNotOp = (left, right) => ({ type: 'logic', left, operator: 'is not', right });
+const tup     = (...items) => ({ type: 'tuple', items });
+
+// (1) Equal scalar immutable values have the same identity.
+t('#32  equal ints are the same object',
+  { blocks: [
+      { id: 1, type: 'variable', name: 'x', value: lit('int', 2) },
+      { id: 2, type: 'variable', name: 'y', value: lit('int', 2) },
+      { id: 3, type: 'print', value: isOp(ref('x'), ref('y')) }] },
+  (r, e) => { noErr(e); eq(r.output, ['True'], 'x is y'); });
+
+t('#32  equal strings are the same object',
+  { blocks: [
+      { id: 1, type: 'variable', name: 'x', value: lit('string', 'hello') },
+      { id: 2, type: 'variable', name: 'y', value: lit('string', 'hello') },
+      { id: 3, type: 'print', value: isOp(ref('x'), ref('y')) }] },
+  (r, e) => { noErr(e); eq(r.output, ['True'], 'str is'); });
+
+t('#32  int, bool and string that look alike are distinct objects',
+  { blocks: [
+      { id: 1, type: 'variable', name: 'a', value: lit('int', 1) },
+      { id: 2, type: 'variable', name: 'b', value: lit('bool', true) },
+      { id: 3, type: 'variable', name: 'c', value: lit('string', '1') },
+      { id: 4, type: 'print', value: isOp(ref('a'), ref('b')) },
+      { id: 5, type: 'print', value: isOp(ref('a'), ref('c')) }] },
+  (r, e) => { noErr(e); eq(r.output, ['False', 'False'], 'type keeps them apart'); });
+
+// (2) Separately created equal lists have different identities;
+// (8) == can be true while is is false.
+t('#32  equal lists: == true but is false',
+  { blocks: [
+      { id: 1, type: 'variable', name: 'x', value: arr(lit('int', 1), lit('int', 2)) },
+      { id: 2, type: 'variable', name: 'y', value: arr(lit('int', 1), lit('int', 2)) },
+      { id: 3, type: 'print', value: { type: 'logic', left: ref('x'), operator: '==', right: ref('y') } },
+      { id: 4, type: 'print', value: isOp(ref('x'), ref('y')) }] },
+  (r, e) => { noErr(e); eq(r.output, ['True', 'False'], '== vs is'); });
+
+// (3) Assignment preserves identity.
+t('#32  y = x makes them the same list',
+  { blocks: [
+      { id: 1, type: 'variable', name: 'x', value: arr(lit('int', 1), lit('int', 2)) },
+      { id: 2, type: 'variable', name: 'y', value: ref('x') },
+      { id: 3, type: 'print', value: isOp(ref('x'), ref('y')) }] },
+  (r, e) => { noErr(e); eq(r.output, ['True'], 'alias is'); });
+
+// (4) Separately constructed equal tuples have different identities.
+t('#32  equal tuples are distinct objects',
+  { blocks: [
+      { id: 1, type: 'variable', name: 'x', value: tup(lit('int', 1), lit('int', 2)) },
+      { id: 2, type: 'variable', name: 'y', value: tup(lit('int', 1), lit('int', 2)) },
+      { id: 3, type: 'print', value: { type: 'logic', left: ref('x'), operator: '==', right: ref('y') } },
+      { id: 4, type: 'print', value: isOp(ref('x'), ref('y')) }] },
+  (r, e) => { noErr(e); eq(r.output, ['True', 'False'], 'tuple == but not is'); });
+
+t('#32  a tuple assigned to another name keeps its identity',
+  { blocks: [
+      { id: 1, type: 'variable', name: 'x', value: tup(lit('int', 1), lit('int', 2)) },
+      { id: 2, type: 'variable', name: 'y', value: ref('x') },
+      { id: 3, type: 'print', value: isOp(ref('x'), ref('y')) }] },
+  (r, e) => { noErr(e); eq(r.output, ['True'], 'tuple alias is'); });
+
+// (5) tuple(existingTuple) preserves identity; tuple(otherIterable) does not.
+t('#32  tuple() of a tuple returns the same object',
+  { blocks: [
+      { id: 1, type: 'variable', name: 'x', value: tup(lit('int', 1), lit('int', 2)) },
+      { id: 2, type: 'variable', name: 'y', value: bi('tuple', ref('x')) },
+      { id: 3, type: 'print', value: isOp(ref('x'), ref('y')) }] },
+  (r, e) => { noErr(e); eq(r.output, ['True'], 'tuple(tuple) is'); });
+
+t('#32  tuple() of a list builds a new tuple',
+  { blocks: [
+      { id: 1, type: 'variable', name: 'x', value: tup(lit('int', 1), lit('int', 2)) },
+      { id: 2, type: 'variable', name: 'y', value: bi('tuple', arr(lit('int', 1), lit('int', 2))) },
+      { id: 3, type: 'print', value: { type: 'logic', left: ref('x'), operator: '==', right: ref('y') } },
+      { id: 4, type: 'print', value: isOp(ref('x'), ref('y')) }] },
+  (r, e) => { noErr(e); eq(r.output, ['True', 'False'], 'tuple(list) not is'); });
+
+// (6) id() returns the same ID for aliases, and is stable across calls.
+t('#32  id() is equal for aliases and stable',
+  { blocks: [
+      { id: 1, type: 'variable', name: 'x', value: arr(lit('int', 1), lit('int', 2)) },
+      { id: 2, type: 'variable', name: 'y', value: ref('x') },
+      { id: 3, type: 'variable', name: 'ix1', value: bi('id', ref('x')) },
+      { id: 4, type: 'variable', name: 'ix2', value: bi('id', ref('x')) },
+      { id: 5, type: 'variable', name: 'iy',  value: bi('id', ref('y')) }] },
+  (r, e) => {
+      noErr(e);
+      if (typeof r.variables.ix1 !== 'number') throw new Error('id() should return a number');
+      eq(r.variables.ix1, r.variables.ix2, 'stable across calls');
+      eq(r.variables.ix1, r.variables.iy,  'equal for aliases');
+  });
+
+t('#32  id() differs for separately built mutable objects',
+  { blocks: [
+      { id: 1, type: 'variable', name: 'x', value: arr(lit('int', 1)) },
+      { id: 2, type: 'variable', name: 'y', value: arr(lit('int', 1)) },
+      { id: 3, type: 'variable', name: 'same',
+        value: { type: 'logic', left: bi('id', ref('x')), operator: '==', right: bi('id', ref('y')) } }] },
+  (r, e) => { noErr(e); eq(r.variables.same, false, 'different ids'); });
+
+t('#32  id() requires exactly one argument',
+  { blocks: [{ id: 1, type: 'variable', name: 'r', value: bi('id') }] },
+  (r, e) => { if (!e.length || e[0].errorType !== 'TypeError' || !/takes exactly 1 argument/.test(e[0].message)) throw new Error('expected argc TypeError'); });
+
+// (7) is and is not return opposite Boolean results.
+t('#32  is and is not are opposites (same object)',
+  { blocks: [
+      { id: 1, type: 'variable', name: 'x', value: lit('int', 5) },
+      { id: 2, type: 'variable', name: 'y', value: lit('int', 5) },
+      { id: 3, type: 'print', value: isOp(ref('x'), ref('y')) },
+      { id: 4, type: 'print', value: isNotOp(ref('x'), ref('y')) }] },
+  (r, e) => { noErr(e); eq(r.output, ['True', 'False'], 'is / is not'); });
+
+t('#32  is and is not are opposites (distinct objects)',
+  { blocks: [
+      { id: 1, type: 'variable', name: 'x', value: arr(lit('int', 1)) },
+      { id: 2, type: 'variable', name: 'y', value: arr(lit('int', 1)) },
+      { id: 3, type: 'print', value: isOp(ref('x'), ref('y')) },
+      { id: 4, type: 'print', value: isNotOp(ref('x'), ref('y')) }] },
+  (r, e) => { noErr(e); eq(r.output, ['False', 'True'], 'is / is not'); });
+
+// ===========================================================================
+// #33  min() / max() with one iterable or several arguments (already supported;
+//      locked in here against regression, plus the required error cases).
+// ===========================================================================
+
+// (9) one iterable argument.
+t('#33  max of one list argument',  evalBI(bi('max', arr(lit('int', 1), lit('int', 5), lit('int', 3)))),
+  (r, e) => { noErr(e); eq(r.variables.r, 5, 'max([...])'); });
+t('#33  min of one list argument',  evalBI(bi('min', arr(lit('int', 1), lit('int', 5), lit('int', 3)))),
+  (r, e) => { noErr(e); eq(r.variables.r, 1, 'min([...])'); });
+
+// (10) several arguments.
+t('#33  max of several arguments',  evalBI(bi('max', lit('int', 1), lit('int', 5), lit('int', 3))),
+  (r, e) => { noErr(e); eq(r.variables.r, 5, 'max(a,b,c)'); });
+t('#33  min of several arguments',  evalBI(bi('min', lit('int', 4), lit('int', 2), lit('int', 9))),
+  (r, e) => { noErr(e); eq(r.variables.r, 2, 'min(a,b,c)'); });
+
+// (11) zero arguments.
+t('#33  max of zero arguments is a TypeError', evalBI(bi('max')),
+  (r, e) => { if (!e.length || e[0].errorType !== 'TypeError' || !/at least 1 argument/.test(e[0].message)) throw new Error('expected zero-arg TypeError'); });
+t('#33  min of zero arguments is a TypeError', evalBI(bi('min')),
+  (r, e) => { if (!e.length || e[0].errorType !== 'TypeError' || !/at least 1 argument/.test(e[0].message)) throw new Error('expected zero-arg TypeError'); });
+
+// (12) empty iterable.
+t('#33  max of an empty list is a ValueError', evalBI(bi('max', { type: 'array' })),
+  (r, e) => { if (!e.length || e[0].errorType !== 'ValueError' || !/empty sequence/.test(e[0].message)) throw new Error('expected empty ValueError'); });
+t('#33  min of an empty list is a ValueError', evalBI(bi('min', { type: 'array' })),
+  (r, e) => { if (!e.length || e[0].errorType !== 'ValueError' || !/empty sequence/.test(e[0].message)) throw new Error('expected empty ValueError'); });
+
+// non-iterable single argument.
+t('#33  max of a single non-iterable is a TypeError', evalBI(bi('max', lit('int', 5))),
+  (r, e) => { if (!e.length || e[0].errorType !== 'TypeError' || !/not iterable/.test(e[0].message)) throw new Error('expected not-iterable TypeError'); });
+
+// ===========================================================================
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

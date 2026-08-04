@@ -209,6 +209,11 @@ const BUILTINS = {
     // introspection
     len:  (a) => { exactly('len', a, 1);  return lengthOf(a[0]); },
     type: (a) => { exactly('type', a, 1); return typeName(a[0]); },
+    // id() returns the backend runtime id of its one (already-evaluated)
+    // argument. Aliases (y = x) share an object and so share an id; separately
+    // built mutable objects get different ids. The identity manager is threaded
+    // in from the interpreter as the second argument.
+    id:   (a, identity) => { exactly('id', a, 1); return identity.idOf(a[0]); },
 
     // conversions
     int:   (a) => { exactly('int', a, 1);   return toInt(a[0]); },
@@ -216,7 +221,15 @@ const BUILTINS = {
     str:   (a) => { exactly('str', a, 1);   return pyStr(a[0]); },
     bool:  (a) => { exactly('bool', a, 1);  return pyBool(a[0]); },
     list:  (a) => { exactly('list', a, 1);  return iterate(a[0]); },
-    tuple: (a) => { exactly('tuple', a, 1); return new PyTuple(iterate(a[0])); },
+    tuple: (a) => {
+        exactly('tuple', a, 1);
+        const x = a[0];
+        // tuple() of an existing tuple returns that SAME object, so identity is
+        // preserved (x is tuple(x)); of any other iterable it builds a new one.
+        // Tuples are never cached by value — a fresh iterable always yields a
+        // fresh tuple, even when the contents are equal.
+        return x instanceof PyTuple ? x : new PyTuple(iterate(x));
+    },
     set:   (a) => { exactly('set', a, 1);   return toSet(a[0]); },
     dict:  (a) => { exactly('dict', a, 1);  return toDict(a[0]); },
 
@@ -258,9 +271,11 @@ function isBuiltin(name) {
     return Object.hasOwn(BUILTINS, name);
 }
 
-// Dispatch a builtin by name over already-evaluated argument values.
-function callBuiltin(name, values) {
-    return BUILTINS[name](values);
+// Dispatch a builtin by name over already-evaluated argument values. `identity`
+// is the per-run identity manager, needed only by id() — every other builtin
+// ignores the extra argument.
+function callBuiltin(name, values, identity) {
+    return BUILTINS[name](values, identity);
 }
 
 module.exports = { isBuiltin, callBuiltin, pyCompare };

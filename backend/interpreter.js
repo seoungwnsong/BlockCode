@@ -3,8 +3,9 @@ const {
 } = require('./flowstatement');
 const { BinaryOperator, Compare, BoolOp } = require('./operations');
 const { num, Booleans, Strings } = require('./permitivedatatypes');
-const { PyList, PySet, PyDict, serializeValue } = require('./object');   // composite types
-const { isBuiltin, callBuiltin } = require('./builtins');        // len/type/int/…
+const { PyList, PySet, PyDict, PyTuple, serializeValue } = require('./object');   // composite types
+const { isBuiltin, callBuiltin } = require('./builtins');        // len/type/int/id/…
+const { createIdentityManager } = require('./identity');         // runtime `is` / id()
 const { parse } = require('./parser');
 const { UserFunction, Return, Call } = require('./function');   // #11, #12, #13
 const { NameError, ValueError } = require('./errors');          // B4
@@ -126,167 +127,6 @@ function literalExpr(dataType, value) {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Expressions
-// ---------------------------------------------------------------------------
-
-// Turns a block into an Expr node — works recursively for composed expressions
-function toExpr(block) {
-    if (block === null || block === undefined) {
-        throw new Error('Missing expression: expected a value block, got nothing');
-    }
-    if (typeof block === 'number')  return new num(block);
-    if (typeof block === 'boolean') return new Booleans(block);
-    // A bare string in an expression slot is parsed, not guessed.
-    // Quoting convention: bare word -> variable, 'quoted' -> string literal,
-    // bare number -> number. Supports and/or/not, comparisons, nesting.
-    if (typeof block === 'string')  return parse(block);
-
-    switch (block.type) {
-        // #3: the frontend wraps every typed value as { type:'literal', dataType, value }
-        case 'literal':
-            return literalExpr(block.dataType, block.value);
-
-        // Older backend shorthand, still accepted
-        case 'int':
-        case 'float':
-        case 'bool':
-        case 'str':
-        case 'string':
-            return literalExpr(block.type, block.value);
-
-        // A list literal: { type:'array', items:[ <value block>, ... ] }.
-        // Each item is any value block toExpr can build, so a list may hold
-        // literals, variable reads, calculations or even nested lists. `items`
-        // is optional — an absent or empty array is just [].
-        case 'array':
-        case 'list': {
-            const items = Array.isArray(block.items) ? block.items : [];
-            return new PyList(items.map(toExpr));
-        }
-
-        // A set literal: { type:'set', items:[ <value block>, ... ] }.
-        // Duplicates collapse and elements must be hashable — see PySet.
-        case 'set': {
-            const items = Array.isArray(block.items) ? block.items : [];
-            return new PySet(items.map(toExpr));
-        }
-
-        // A dict literal: { type:'dictionary', entries:[ { key, value }, ... ] }.
-        // Each key and value is its own value block. Keys must be immutable —
-        // see PyDict, which raises KeyError on a mutable key.
-        case 'dictionary':
-        case 'dict': {
-            const entries = Array.isArray(block.entries) ? block.entries : [];
-            return new PyDict(entries.map(entry => {
-                if (!entry || typeof entry !== 'object' || entry.key === undefined) {
-                    throw new ValueError('dictionary entry requires a "key" and a "value"');
-                }
-                return { key: toExpr(entry.key), value: toExpr(entry.value) };
-            }));
-        }
-
-        // #5: the frontend reads a variable with { type:'variableReference', name }.
-        // 'variable' is kept here only for older payloads; in a STATEMENT slot
-        // 'variable' means assignment (see toStmt).
-        case 'variableReference':
-        case 'variable':
-            // #27: reject a syntactically illegal name now (SyntaxError), so a
-            // name that could never exist isn't misreported as "not defined".
-            validateReference(block.name);
-            return { evaluate: (env) => {
-                if (!Object.hasOwn(env, block.name)) throw new NameError(`name '${block.name}' is not defined`);   // #20, B4
-                return env[block.name];
-            }};
-
-        case 'expression':
-            // Free-form string routed through parser.js.
-            //   bare word  -> variable reference     ("A"    -> env.A)
-            //   'quoted'   -> string literal         ("'hi'" -> "hi")
-            //   bare number-> numeric literal        ("5"    -> 5)
-            return parse(block.value);
-
-        case 'calculation':
-            return new BinaryOperator(toExpr(block.left), block.operator, toExpr(block.right));
-
-        // #22: the frontend flattens a run of maths into ONE node when the user
-        // adds a third operand: { first, operations:[{operator, value}, ...] }.
-        // The row carries no grouping, so it is rebuilt with Python's precedence
-        // — 2 + 3 * 4 is 14 here, exactly as the free-form parser would read it.
-        case 'calculationChain':
-            return foldCalculationChain(toExpr(block.first), block.operations);
-
-        // #23: the comparison counterpart, { first, comparisons:[{operator, right}] }.
-        // Compare already implements Python's chaining, so 1 < 2 < 3 is
-        // (1 < 2) and (2 < 3) rather than (1 < 2) < 3.
-        case 'comparisonChain': {
-            if (!Array.isArray(block.comparisons) || block.comparisons.length === 0) {
-                throw new ValueError('comparisonChain requires a "comparisons" array');
-            }
-            return new Compare(
-                toExpr(block.first),
-                block.comparisons.map(c => [c.operator ?? c.op, toExpr(c.right)])
-            );
-        }
-
-        // #6: the frontend collapses comparisons AND boolean ops into 'logic'
-        case 'logic': {
-            const op = block.operator;
-            if (op === 'and' || op === 'or') {
-                return new BoolOp(op, [toExpr(block.left), toExpr(block.right)]);
-            }
-            return new Compare(toExpr(block.left), [[op, toExpr(block.right)]]);
-        }
-
-        case 'compare':
-            // Chained: { left, comparisons: [{op, right}, ...] }
-            // Simple:  { left, operator, right }
-            return block.comparisons
-                ? new Compare(toExpr(block.left), block.comparisons.map(c => [c.op ?? c.operator, toExpr(c.right)]))
-                : new Compare(toExpr(block.left), [[block.operator, toExpr(block.right)]]);
-
-        case 'boolop': {
-            const op = block.operator;
-            if (op !== 'and' && op !== 'or') {
-                throw new ValueError(`boolop operator must be "and" or "or", got: "${op}"`);
-            }
-            if (!Array.isArray(block.values) || block.values.length < 2) {
-                throw new ValueError('boolop requires a "values" array of at least 2 expressions');
-            }
-            return new BoolOp(op, block.values.map(toExpr));
-        }
-
-        case 'not': {
-            if (block.value === undefined) throw new ValueError('not block requires a "value"');
-            const operand = toExpr(block.value);
-            return { evaluate: (env) => !operand.evaluate(env) };
-        }
-
-        // #12: user-defined function call. functionId / paramNames are frontend
-        // metadata; the runtime resolves by name.
-        case 'call':
-            return new Call(block.name, (block.args ?? []).map(toExpr));
-
-        // Built-in call — every built-in (len, type, int, abs, min, sorted, …)
-        // arrives under this one tag, distinguished by `name`. The args are
-        // evaluated here and the resulting VALUES handed to builtins.js; an
-        // unknown name is a NameError, exactly as Python treats an unbound name.
-        case 'builtinCall': {
-            const name = block.name;
-            if (!isBuiltin(name)) {
-                throw new NameError(`name '${name}' is not defined`);
-            }
-            const argExprs = (block.args ?? []).map(toExpr);
-            return { evaluate: (env) => callBuiltin(name, argExprs.map(e => e.evaluate(env))) };
-        }
-
-        default:
-            // Inline literal carrying dataType beside value
-            if (block.dataType !== undefined) return literalExpr(block.dataType, block.value);
-            throw new Error(`Unknown expression block: "${block.type}"`);
-    }
-}
-
 // #22 (continued): the frontend's operator palette is + - * / % — all
 // left-associative, none right-associative, so a single precedence table and a
 // left-to-right reduction reproduce Python exactly. `**` is deliberately absent:
@@ -294,54 +134,6 @@ function toExpr(block) {
 // (2 ** 3 ** 2 is 512 in Python, not 64). If a power block is ever added, it
 // needs its own right-associative branch rather than a row in this table.
 const CHAIN_PRECEDENCE = { '+': 1, '-': 1, '*': 2, '/': 2, '%': 2 };
-
-function foldCalculationChain(firstExpr, operations) {
-    if (!Array.isArray(operations) || operations.length === 0) {
-        throw new ValueError('calculationChain requires an "operations" array');
-    }
-
-    const operands  = [firstExpr];
-    const operators = [];
-
-    const reduceTop = () => {
-        const op    = operators.pop();
-        const right = operands.pop();
-        const left  = operands.pop();
-        operands.push(new BinaryOperator(left, op, right));
-    };
-
-    for (const operation of operations) {
-        const op = operation?.operator;
-        if (!Object.hasOwn(CHAIN_PRECEDENCE, op)) {
-            throw new ValueError(`Unknown operator in calculation chain: "${op}"`);
-        }
-        // Left-associative: anything already stacked that binds at least as
-        // tightly gets closed off before this operator is pushed.
-        while (operators.length && CHAIN_PRECEDENCE[operators[operators.length - 1]] >= CHAIN_PRECEDENCE[op]) {
-            reduceTop();
-        }
-        operators.push(op);
-        operands.push(toExpr(operation.value));
-    }
-
-    while (operators.length) reduceTop();
-    return operands[0];
-}
-
-// For statement slots where dataType may sit BESIDE value rather than wrapping it,
-// e.g. { type:'print', value:'hello', dataType:'str' }.
-function valueExpr(block) {
-    const v = block.value;
-    const isScalar = typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean';
-    if (block.dataType !== undefined && isScalar) {
-        return literalExpr(block.dataType, v);
-    }
-    return toExpr(v);
-}
-
-// ---------------------------------------------------------------------------
-// Statements
-// ---------------------------------------------------------------------------
 
 // #7 / #8 / #10: the frontend names container arrays `children`,
 // `tryChildren`, `catchChildren`. Older payloads used `body` / `handler`.
@@ -351,9 +143,247 @@ function pick(...candidates) {
     return [];
 }
 
-// #16: toStmt is built per-run so Print can be handed this run's output array
-// instead of the whole server monkey-patching global console.log.
-function makeToStmt(output) {
+// ---------------------------------------------------------------------------
+// Per-run builder
+// ---------------------------------------------------------------------------
+// #16: the block -> node converters are built per run so Print can be handed
+// this run's `output` array, and so the `is` / id() nodes can close over this
+// run's identity manager — instead of either being reached through global
+// state. toExpr, foldCalculationChain, valueExpr and toStmt all live here and
+// share those two captured values.
+function makeBuilder(output, identity) {
+
+    // Turns a block into an Expr node — works recursively for composed expressions
+    function toExpr(block) {
+        if (block === null || block === undefined) {
+            throw new Error('Missing expression: expected a value block, got nothing');
+        }
+        if (typeof block === 'number')  return new num(block);
+        if (typeof block === 'boolean') return new Booleans(block);
+        // A bare string in an expression slot is parsed, not guessed.
+        // Quoting convention: bare word -> variable, 'quoted' -> string literal,
+        // bare number -> number. Supports and/or/not, comparisons, nesting.
+        if (typeof block === 'string')  return parse(block);
+
+        switch (block.type) {
+            // #3: the frontend wraps every typed value as { type:'literal', dataType, value }
+            case 'literal':
+                return literalExpr(block.dataType, block.value);
+
+            // Older backend shorthand, still accepted
+            case 'int':
+            case 'float':
+            case 'bool':
+            case 'str':
+            case 'string':
+                return literalExpr(block.type, block.value);
+
+            // A list literal: { type:'array', items:[ <value block>, ... ] }.
+            // Each item is any value block toExpr can build, so a list may hold
+            // literals, variable reads, calculations or even nested lists. `items`
+            // is optional — an absent or empty array is just [].
+            case 'array':
+            case 'list': {
+                const items = Array.isArray(block.items) ? block.items : [];
+                return new PyList(items.map(toExpr));
+            }
+
+            // A tuple literal: { type:'tuple', items:[ <value block>, ... ] }.
+            // Each evaluation constructs a NEW PyTuple, so two separately built
+            // tuples carry distinct runtime identity even when their values are
+            // equal (x = (1,2); y = (1,2)  ->  x == y but not x is y). Tuples are
+            // never interned by value.
+            case 'tuple': {
+                const items = Array.isArray(block.items) ? block.items : [];
+                const exprs = items.map(toExpr);
+                return { evaluate: (env) => new PyTuple(exprs.map(e => e.evaluate(env))) };
+            }
+
+            // A set literal: { type:'set', items:[ <value block>, ... ] }.
+            // Duplicates collapse and elements must be hashable — see PySet.
+            case 'set': {
+                const items = Array.isArray(block.items) ? block.items : [];
+                return new PySet(items.map(toExpr));
+            }
+
+            // A dict literal: { type:'dictionary', entries:[ { key, value }, ... ] }.
+            // Each key and value is its own value block. Keys must be immutable —
+            // see PyDict, which raises KeyError on a mutable key.
+            case 'dictionary':
+            case 'dict': {
+                const entries = Array.isArray(block.entries) ? block.entries : [];
+                return new PyDict(entries.map(entry => {
+                    if (!entry || typeof entry !== 'object' || entry.key === undefined) {
+                        throw new ValueError('dictionary entry requires a "key" and a "value"');
+                    }
+                    return { key: toExpr(entry.key), value: toExpr(entry.value) };
+                }));
+            }
+
+            // #5: the frontend reads a variable with { type:'variableReference', name }.
+            // 'variable' is kept here only for older payloads; in a STATEMENT slot
+            // 'variable' means assignment (see toStmt).
+            case 'variableReference':
+            case 'variable':
+                // #27: reject a syntactically illegal name now (SyntaxError), so a
+                // name that could never exist isn't misreported as "not defined".
+                validateReference(block.name);
+                return { evaluate: (env) => {
+                    if (!Object.hasOwn(env, block.name)) throw new NameError(`name '${block.name}' is not defined`);   // #20, B4
+                    return env[block.name];
+                }};
+
+            case 'expression':
+                // Free-form string routed through parser.js.
+                //   bare word  -> variable reference     ("A"    -> env.A)
+                //   'quoted'   -> string literal         ("'hi'" -> "hi")
+                //   bare number-> numeric literal        ("5"    -> 5)
+                return parse(block.value);
+
+            case 'calculation':
+                return new BinaryOperator(toExpr(block.left), block.operator, toExpr(block.right));
+
+            // #22: the frontend flattens a run of maths into ONE node when the user
+            // adds a third operand: { first, operations:[{operator, value}, ...] }.
+            // The row carries no grouping, so it is rebuilt with Python's precedence
+            // — 2 + 3 * 4 is 14 here, exactly as the free-form parser would read it.
+            case 'calculationChain':
+                return foldCalculationChain(toExpr(block.first), block.operations);
+
+            // #23: the comparison counterpart, { first, comparisons:[{operator, right}] }.
+            // Compare already implements Python's chaining, so 1 < 2 < 3 is
+            // (1 < 2) and (2 < 3) rather than (1 < 2) < 3.
+            case 'comparisonChain': {
+                if (!Array.isArray(block.comparisons) || block.comparisons.length === 0) {
+                    throw new ValueError('comparisonChain requires a "comparisons" array');
+                }
+                return new Compare(
+                    toExpr(block.first),
+                    block.comparisons.map(c => [c.operator ?? c.op, toExpr(c.right)])
+                );
+            }
+
+            // #6: the frontend collapses comparisons AND boolean ops into 'logic'
+            case 'logic': {
+                const op = block.operator;
+                if (op === 'and' || op === 'or') {
+                    return new BoolOp(op, [toExpr(block.left), toExpr(block.right)]);
+                }
+                // Identity, not value: `is` is true when both operands are the
+                // SAME runtime object (same id from the identity manager), and
+                // `is not` is its negation. == / != stay value comparisons and
+                // fall through to Compare below. This must not be implemented by
+                // comparing values — two equal lists are `==` but never `is`.
+                if (op === 'is' || op === 'is not') {
+                    const left  = toExpr(block.left);
+                    const right = toExpr(block.right);
+                    const negate = op === 'is not';
+                    return { evaluate: (env) => {
+                        const same = identity.sameIdentity(left.evaluate(env), right.evaluate(env));
+                        return negate ? !same : same;
+                    }};
+                }
+                return new Compare(toExpr(block.left), [[op, toExpr(block.right)]]);
+            }
+
+            case 'compare':
+                // Chained: { left, comparisons: [{op, right}, ...] }
+                // Simple:  { left, operator, right }
+                return block.comparisons
+                    ? new Compare(toExpr(block.left), block.comparisons.map(c => [c.op ?? c.operator, toExpr(c.right)]))
+                    : new Compare(toExpr(block.left), [[block.operator, toExpr(block.right)]]);
+
+            case 'boolop': {
+                const op = block.operator;
+                if (op !== 'and' && op !== 'or') {
+                    throw new ValueError(`boolop operator must be "and" or "or", got: "${op}"`);
+                }
+                if (!Array.isArray(block.values) || block.values.length < 2) {
+                    throw new ValueError('boolop requires a "values" array of at least 2 expressions');
+                }
+                return new BoolOp(op, block.values.map(toExpr));
+            }
+
+            case 'not': {
+                if (block.value === undefined) throw new ValueError('not block requires a "value"');
+                const operand = toExpr(block.value);
+                return { evaluate: (env) => !operand.evaluate(env) };
+            }
+
+            // #12: user-defined function call. functionId / paramNames are frontend
+            // metadata; the runtime resolves by name.
+            case 'call':
+                return new Call(block.name, (block.args ?? []).map(toExpr));
+
+            // Built-in call — every built-in (len, type, int, id, abs, min, …)
+            // arrives under this one tag, distinguished by `name`. The args are
+            // evaluated recursively here and the resulting VALUES handed to
+            // builtins.js; an unknown name is a NameError, exactly as Python
+            // treats an unbound name. `identity` is threaded through for id(),
+            // which needs the runtime id of its argument; other builtins ignore it.
+            case 'builtinCall': {
+                const name = block.name;
+                if (!isBuiltin(name)) {
+                    throw new NameError(`name '${name}' is not defined`);
+                }
+                const argExprs = (block.args ?? []).map(toExpr);
+                return { evaluate: (env) => callBuiltin(name, argExprs.map(e => e.evaluate(env)), identity) };
+            }
+
+            default:
+                // Inline literal carrying dataType beside value
+                if (block.dataType !== undefined) return literalExpr(block.dataType, block.value);
+                throw new Error(`Unknown expression block: "${block.type}"`);
+        }
+    }
+
+    function foldCalculationChain(firstExpr, operations) {
+        if (!Array.isArray(operations) || operations.length === 0) {
+            throw new ValueError('calculationChain requires an "operations" array');
+        }
+
+        const operands  = [firstExpr];
+        const operators = [];
+
+        const reduceTop = () => {
+            const op    = operators.pop();
+            const right = operands.pop();
+            const left  = operands.pop();
+            operands.push(new BinaryOperator(left, op, right));
+        };
+
+        for (const operation of operations) {
+            const op = operation?.operator;
+            if (!Object.hasOwn(CHAIN_PRECEDENCE, op)) {
+                throw new ValueError(`Unknown operator in calculation chain: "${op}"`);
+            }
+            // Left-associative: anything already stacked that binds at least as
+            // tightly gets closed off before this operator is pushed.
+            while (operators.length && CHAIN_PRECEDENCE[operators[operators.length - 1]] >= CHAIN_PRECEDENCE[op]) {
+                reduceTop();
+            }
+            operators.push(op);
+            operands.push(toExpr(operation.value));
+        }
+
+        while (operators.length) reduceTop();
+        return operands[0];
+    }
+
+    // For statement slots where dataType may sit BESIDE value rather than wrapping it,
+    // e.g. { type:'print', value:'hello', dataType:'str' }.
+    function valueExpr(block) {
+        const v = block.value;
+        const isScalar = typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean';
+        if (block.dataType !== undefined && isScalar) {
+            return literalExpr(block.dataType, v);
+        }
+        return toExpr(v);
+    }
+
+    // ---------------------------------------------------------------------------
+    // Statements
+    // ---------------------------------------------------------------------------
     function toStmt(block) {
         if (!block || typeof block !== 'object') {
             throw new Error('Invalid statement block');
@@ -493,7 +523,8 @@ function makeToStmt(output) {
                 throw new Error(`Unknown statement block: "${block.type}"`);
         }
     }
-    return toStmt;
+
+    return { toExpr, toStmt };
 }
 
 // ---------------------------------------------------------------------------
@@ -507,10 +538,13 @@ function runProgram(program) {
     const rawFns  = Array.isArray(source.functions) ? source.functions : [];
     const rawBlks = Array.isArray(source.blocks)    ? source.blocks    : [];
 
-    const env     = Object.create(null);   // #20
-    const output  = [];
-    const results = [];
-    const toStmt  = makeToStmt(output);
+    const env      = Object.create(null);   // #20
+    const output   = [];
+    const results  = [];
+    // One identity manager per run: runtime ids start at 1 and never leak
+    // between programs. It is captured by the builder's `is` / id() nodes.
+    const identity = createIdentityManager();
+    const { toStmt } = makeBuilder(output, identity);
 
     // A `def` normally arrives in `functions`, but tolerate one sitting in `blocks`.
     const defs   = [...rawFns, ...rawBlks.filter(b => b && b.type === 'def')];

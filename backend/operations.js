@@ -1,6 +1,44 @@
 ///just for testing
 const { Expr } = require('./permitivedatatypes');
 const { ZeroDivisionError, typeName } = require('./errors');
+const { PyTuple } = require('./object');
+
+// Python VALUE equality, the meaning of == / != (identity `is` lives in
+// identity.js and is a different question). Scalars fall through to JS ===, so
+// scalar behaviour is unchanged — but containers compare by CONTENTS: two
+// separately built lists with equal elements are ==, exactly as Python says,
+// even though they are not the same object. A list and a tuple are never equal
+// (Python agrees: [1,2] != (1,2)); sets compare as unordered members; dicts
+// compare key-by-key. Nested containers recurse.
+function seqKind(v) {
+    if (Array.isArray(v))     return 'list';
+    if (v instanceof PyTuple) return 'tuple';
+    return null;
+}
+function seqItems(v) { return Array.isArray(v) ? v : v.items; }
+
+function pyEquals(a, b) {
+    if (a === b) return true;                 // primitives, and same reference
+    const ka = seqKind(a), kb = seqKind(b);
+    if (ka && kb) {
+        if (ka !== kb) return false;          // list vs tuple: never equal
+        const ai = seqItems(a), bi = seqItems(b);
+        if (ai.length !== bi.length) return false;
+        for (let i = 0; i < ai.length; i++) if (!pyEquals(ai[i], bi[i])) return false;
+        return true;
+    }
+    if (a instanceof Set && b instanceof Set) {
+        if (a.size !== b.size) return false;
+        for (const x of a) if (!b.has(x)) return false;
+        return true;
+    }
+    if (a instanceof Map && b instanceof Map) {
+        if (a.size !== b.size) return false;
+        for (const [k, v] of a) if (!b.has(k) || !pyEquals(b.get(k), v)) return false;
+        return true;
+    }
+    return false;
+}
 
 // B4: arithmetic on mismatched types used to fall through to JS coercion and
 // produce NaN, which then poisons every downstream calculation without ever
@@ -99,9 +137,11 @@ class BinaryOperator extends Expr {
                 requireNumeric("**", left, right);
                 return left ** right;
 
-            // == and != are valid across types in Python (they just yield False)
-            case "==":  return left === right;
-            case "!=":  return left !== right;
+            // == and != are valid across types in Python (they just yield False).
+            // pyEquals compares containers by value; scalars still fall through
+            // to ===, so nothing about scalar equality changes.
+            case "==":  return pyEquals(left, right);
+            case "!=":  return !pyEquals(left, right);
 
             case "<":   requireOrderable("<",  left, right); return left <  right;
             case ">":   requireOrderable(">",  left, right); return left >  right;
@@ -125,8 +165,8 @@ class Compare extends Expr {
         for (const [op, rightExpr] of this.comparisons) {
             const right = rightExpr.evaluate(env);
             const ops = {
-                "==": (a, b) => a === b,
-                "!=": (a, b) => a !== b,
+                "==": (a, b) => pyEquals(a, b),
+                "!=": (a, b) => !pyEquals(a, b),
                 "<":  (a, b) => a < b,
                 ">":  (a, b) => a > b,
                 "<=": (a, b) => a <= b,
