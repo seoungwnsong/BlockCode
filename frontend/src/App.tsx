@@ -5,7 +5,15 @@ import blockCodeLogo from "./assets/blockcode-logo.png";
 
 type DataType = "int" | "float" | "bool" | "string";
 type MathOperator = "+" | "-" | "*" | "/" | "%";
-type ComparisonOperator = "==" | "!=" | ">" | "<" | ">=" | "<=";
+type ComparisonOperator =
+  | "=="
+  | "!="
+  | ">"
+  | "<"
+  | ">="
+  | "<="
+  | "is"
+  | "is not";
 type LogicOperator = ComparisonOperator | "and" | "or";
 
 type LiteralExpression = {
@@ -86,9 +94,11 @@ type DictionaryExpression = {
   entries: DictionaryEntry[];
 };
 
+
 type BuiltinFunctionName =
   | "len"
   | "type"
+  | "id"
   | "int"
   | "float"
   | "str"
@@ -102,7 +112,12 @@ type BuiltinFunctionName =
   | "min"
   | "max"
   | "sum"
-  | "sorted";
+  | "sorted"
+  | "reversed"
+  | "all"
+  | "any";
+
+type BuiltinGroupId = "general" | "convert" | "numbers" | "collections";
 
 type BuiltinCallExpression = {
   id: number;
@@ -218,12 +233,7 @@ type UserFunction = {
 
 type BlockType = Exclude<Block["type"], "builtinCall">;
 
-type BlockCategory =
-  | "basics"
-  | "expressions"
-  | "data"
-  | "flow"
-  | "functions";
+type BlockCategory = "basics" | "expressions" | "data" | "flow" | "functions";
 
 const BLOCK_CATEGORIES: { id: BlockCategory; label: string; title: string }[] = [
   { id: "basics", label: "Basic", title: "Basic blocks" },
@@ -236,22 +246,28 @@ const BLOCK_CATEGORIES: { id: BlockCategory; label: string; title: string }[] = 
 type BuiltinDefinition = {
   name: BuiltinFunctionName;
   argLabels: string[];
+  variadic?: boolean;
+  minimumArgs?: number;
 };
 
 type BuiltinGroup = {
+  id: BuiltinGroupId;
   title: string;
   functions: BuiltinDefinition[];
 };
 
 const BUILTIN_GROUPS: BuiltinGroup[] = [
   {
+    id: "general",
     title: "General",
     functions: [
       { name: "len", argLabels: ["value"] },
       { name: "type", argLabels: ["value"] },
+      { name: "id", argLabels: ["value"] },
     ],
   },
   {
+    id: "convert",
     title: "Convert",
     functions: [
       { name: "int", argLabels: ["value"] },
@@ -265,18 +281,35 @@ const BUILTIN_GROUPS: BuiltinGroup[] = [
     ],
   },
   {
+    id: "numbers",
     title: "Numbers",
     functions: [
       { name: "abs", argLabels: ["number"] },
       { name: "round", argLabels: ["number", "digits"] },
-      { name: "min", argLabels: ["value 1", "value 2"] },
-      { name: "max", argLabels: ["value 1", "value 2"] },
+      {
+        name: "min",
+        argLabels: ["value 1", "value 2"],
+        variadic: true,
+        minimumArgs: 1,
+      },
+      {
+        name: "max",
+        argLabels: ["value 1", "value 2"],
+        variadic: true,
+        minimumArgs: 1,
+      },
       { name: "sum", argLabels: ["values"] },
     ],
   },
   {
+    id: "collections",
     title: "Collections",
-    functions: [{ name: "sorted", argLabels: ["values"] }],
+    functions: [
+      { name: "sorted", argLabels: ["values"] },
+      { name: "reversed", argLabels: ["values"] },
+      { name: "all", argLabels: ["values"] },
+      { name: "any", argLabels: ["values"] },
+    ],
   },
 ];
 
@@ -287,6 +320,38 @@ function getBuiltinDefinition(name: BuiltinFunctionName): BuiltinDefinition {
   }
 
   return { name, argLabels: ["value"] };
+}
+
+function getBuiltinGroupId(name: BuiltinFunctionName): BuiltinGroupId {
+  for (const group of BUILTIN_GROUPS) {
+    if (group.functions.some((item) => item.name === name)) {
+      return group.id;
+    }
+  }
+
+  return "general";
+}
+
+function isVariadicBuiltin(name: BuiltinFunctionName) {
+  return getBuiltinDefinition(name).variadic === true;
+}
+
+function getBuiltinMinimumArgs(name: BuiltinFunctionName) {
+  return getBuiltinDefinition(name).minimumArgs ?? 0;
+}
+
+function getBuiltinArgumentLabel(
+  name: BuiltinFunctionName,
+  index: number
+) {
+  if (name === "min" || name === "max") {
+    return `value ${index + 1}`;
+  }
+
+  return (
+    getBuiltinDefinition(name).argLabels[index] ??
+    `arg ${index + 1}`
+  );
 }
 
 type ListDropTarget =
@@ -2842,6 +2907,62 @@ function App() {
     });
   }
 
+  function addBuiltinArgument(id: number) {
+    updateCurrentExpression(id, (expression) => {
+      if (
+        expression.type !== "builtinCall" ||
+        !isVariadicBuiltin(expression.name)
+      ) {
+        return expression;
+      }
+
+      const nextArgs = [
+        ...expression.args,
+        createAtomicExpression(),
+      ];
+
+      return {
+        ...expression,
+        args: nextArgs,
+        argLabels: nextArgs.map((_, index) =>
+          getBuiltinArgumentLabel(expression.name, index)
+        ),
+      };
+    });
+  }
+
+  function removeBuiltinArgument(id: number, index: number) {
+    updateCurrentExpression(id, (expression) => {
+      if (
+        expression.type !== "builtinCall" ||
+        !isVariadicBuiltin(expression.name)
+      ) {
+        return expression;
+      }
+
+      const minimumArgs = getBuiltinMinimumArgs(expression.name);
+
+      if (expression.args.length <= minimumArgs) {
+        return expression;
+      }
+
+      const nextArgs = expression.args.filter(
+        (_, argumentIndex) => argumentIndex !== index
+      );
+
+      return {
+        ...expression,
+        args: nextArgs,
+        argLabels: nextArgs.map((_, argumentIndex) =>
+          getBuiltinArgumentLabel(
+            expression.name,
+            argumentIndex
+          )
+        ),
+      };
+    });
+  }
+
   function addCollectionItem(id: number) {
     updateCurrentExpression(id, (expression) => {
       if (expression.type !== "array" && expression.type !== "set") {
@@ -3488,11 +3609,14 @@ function App() {
     );
   }
 
-  function renderBuiltinBlock(definition: BuiltinDefinition) {
+  function renderBuiltinBlock(
+    definition: BuiltinDefinition,
+    groupId: BuiltinGroupId
+  ) {
     return (
       <div
         key={definition.name}
-        className="template-block builtin-template"
+        className={`template-block builtin-template builtin-template-${groupId}`}
         draggable
         onDragStart={(event) =>
           handleBuiltinDragStart(event, definition.name)
@@ -3746,6 +3870,8 @@ function App() {
         <option value="<">&lt;</option>
         <option value=">=">&gt;=</option>
         <option value="<=">&lt;=</option>
+        <option value="is">is</option>
+        <option value="is not">is not</option>
       </>
     );
   }
@@ -4067,6 +4193,11 @@ function App() {
   }
 
   function renderBuiltinCallContent(expression: BuiltinCallExpression) {
+    const isVariadic = isVariadicBuiltin(expression.name);
+    const minimumArgs = getBuiltinMinimumArgs(expression.name);
+    const canRemoveArgument =
+      isVariadic && expression.args.length > minimumArgs;
+
     return (
       <div className="expression-content-row function-call-row builtin-call-row">
         <span className="function-call-name builtin-call-name">
@@ -4075,19 +4206,56 @@ function App() {
         <span>(</span>
 
         {expression.args.map((argument, index) => (
-          <div key={argument.id} className="function-argument-item">
+          <div
+            key={argument.id}
+            className="function-argument-item builtin-argument-item"
+          >
             {renderExpressionSlot(
               argument,
-              expression.argLabels[index] || `arg ${index + 1}`,
+              expression.argLabels[index] ||
+                getBuiltinArgumentLabel(expression.name, index),
               "function-argument-slot",
               78,
               170
             )}
+
+            {canRemoveArgument && (
+              <button
+                type="button"
+                className="remove-builtin-argument-button"
+                title={`Remove argument ${index + 1}`}
+                aria-label={`Remove argument ${index + 1}`}
+                onMouseDown={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  removeBuiltinArgument(expression.id, index);
+                }}
+              >
+                ×
+              </button>
+            )}
+
             {index < expression.args.length - 1 && <span>,</span>}
           </div>
         ))}
 
         <span>)</span>
+
+        {isVariadic && (
+          <button
+            type="button"
+            className="add-builtin-argument-button"
+            title={`Add another value to ${expression.name}()`}
+            aria-label={`Add another value to ${expression.name}()`}
+            onMouseDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              addBuiltinArgument(expression.id);
+            }}
+          >
+            +
+          </button>
+        )}
       </div>
     );
   }
@@ -4110,7 +4278,11 @@ function App() {
 
     return (
       <div
-        className={`nested-expression ${expressionClass}`}
+        className={`nested-expression ${expressionClass} ${
+          expression.type === "builtinCall"
+            ? `builtin-call-${getBuiltinGroupId(expression.name)}`
+            : ""
+        }`}
         draggable
         onDragStart={(event) =>
           handleExpressionDragStart(event, expression.id)
@@ -4152,6 +4324,10 @@ function App() {
       <div
         className={`scratch-block ${block.type}-block ${
           isContainerBlock(block) ? "container-block" : ""
+        } ${
+          block.type === "builtinCall"
+            ? `builtin-call-${getBuiltinGroupId(block.name)}`
+            : ""
         }`}
         draggable
         onDragStart={(event) =>
@@ -4560,6 +4736,24 @@ function App() {
           />
         </div>
 
+        <div className="topbar-actions">
+          <button
+            className="run-button"
+            onClick={checkFlow}
+            title="Run program"
+            aria-label="Run program"
+          >
+            <svg
+              className="run-icon"
+              viewBox="0 0 24 24"
+              width="20"
+              height="20"
+              aria-hidden="true"
+            >
+              <path d="M8 5V19L19 12L8 5Z" />
+            </svg>
+          </button>
+        </div>
       </header>
 
       <aside className="function-sidebar builtin-sidebar app-font">
@@ -4569,10 +4763,15 @@ function App() {
 
         <div className="builtin-groups">
           {BUILTIN_GROUPS.map((group) => (
-            <section className="builtin-group" key={group.title}>
+            <section
+              className={`builtin-group builtin-group-${group.id}`}
+              key={group.id}
+            >
               <h2>{group.title}</h2>
               <div className="builtin-list">
-                {group.functions.map(renderBuiltinBlock)}
+                {group.functions.map((definition) =>
+                  renderBuiltinBlock(definition, group.id)
+                )}
               </div>
             </section>
           ))}
@@ -4612,7 +4811,7 @@ function App() {
           {activeBlockCategory === "basics" && (
             <section className="block-section active-block-section">
               <div className="block-section-heading">
-                <h3>Basic</h3>
+                <h3>Start Here</h3>
               </div>
               {renderPaletteBlock("variable", "variable", "variable-template")}
               {renderPaletteBlock("print", "print", "print-template")}
@@ -4652,22 +4851,25 @@ function App() {
           {activeBlockCategory === "flow" && (
             <section className="block-section active-block-section">
               <div className="block-section-heading">
-                <h3>Flow</h3>
+                <h3>Control Flow</h3>
               </div>
               {renderPaletteBlock("if", "if", "control-template")}
+              {renderPaletteBlock("try/catch", "tryCatch", "try-template")}
               {renderPaletteBlock("for", "for", "control-template")}
               {renderPaletteBlock("while", "while", "control-template")}
-              {renderPaletteBlock("try/catch", "tryCatch", "try-template")}
             </section>
           )}
 
           {activeBlockCategory === "functions" && (
-            <section className="block-section active-block-section function-category-section">
+            <section className="block-section active-block-section">
               <div className="block-section-heading">
                 <h3>Functions</h3>
               </div>
 
-              <button className="create-function-button" onClick={createFunction}>
+              <button
+                className="create-function-button"
+                onClick={createFunction}
+              >
                 + Create Function
               </button>
 
@@ -4683,18 +4885,24 @@ function App() {
                     draggable
                     onDragStart={(event) => {
                       event.dataTransfer.setData("source", "function");
-                      event.dataTransfer.setData("functionId", String(func.id));
+                      event.dataTransfer.setData(
+                        "functionId",
+                        String(func.id)
+                      );
                       event.dataTransfer.effectAllowed = "copy";
                     }}
                     onDragEnd={handleDragEnd}
                     onClick={() => addFunctionCall(func)}
                   >
-                    <span className="function-block-name">{func.name}</span>
+                    <span className="function-block-name">
+                      {func.name}
+                    </span>
 
                     <button
                       className="function-more-button"
                       onClick={(event) => {
                         event.stopPropagation();
+
                         setOpenFunctionMenuId((previous) =>
                           previous === func.id ? null : func.id
                         );
@@ -4707,7 +4915,9 @@ function App() {
                     {openFunctionMenuId === func.id && (
                       <div
                         className="function-menu"
-                        onClick={(event) => event.stopPropagation()}
+                        onClick={(event) =>
+                          event.stopPropagation()
+                        }
                       >
                         <button
                           onClick={(event) => {
@@ -4715,10 +4925,14 @@ function App() {
                             openFunctionTab(func.id);
                           }}
                         >
-                          <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <svg
+                            viewBox="0 0 24 24"
+                            aria-hidden="true"
+                          >
                             <path d="M4 20H8L18.5 9.5L14.5 5.5L4 16V20Z" />
                             <path d="M13.5 6.5L17.5 10.5" />
                           </svg>
+
                           <span>Edit</span>
                         </button>
 
@@ -4729,13 +4943,17 @@ function App() {
                             requestDeleteFunction(func.id);
                           }}
                         >
-                          <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <svg
+                            viewBox="0 0 24 24"
+                            aria-hidden="true"
+                          >
                             <path d="M5 7H19" />
                             <path d="M10 11V17" />
                             <path d="M14 11V17" />
                             <path d="M8 7L9 4H15L16 7" />
                             <path d="M7 7L8 20H16L17 7" />
                           </svg>
+
                           <span>Delete</span>
                         </button>
                       </div>
@@ -4843,34 +5061,11 @@ function App() {
               </div>
             )}
 
-            <div className="workspace-toolbar-actions">
-              <div className="zoom-controls">
-                <button onClick={zoomOut} aria-label="Zoom out">−</button>
-                <span>{Math.round(zoom * 100)}%</span>
-                <button onClick={zoomIn} aria-label="Zoom in">+</button>
-                <button onClick={resetZoom}>Reset</button>
-              </div>
-
-              <div
-                className="run-button-wrap"
-                data-tooltip="Run main workspace"
-              >
-                <button
-                  className="run-button"
-                  onClick={checkFlow}
-                  aria-label="Run main workspace"
-                >
-                  <svg
-                    className="run-icon"
-                    viewBox="0 0 24 24"
-                    width="20"
-                    height="20"
-                    aria-hidden="true"
-                  >
-                    <path d="M9.2 6.2C8.6 5.8 8 6.2 8 6.9V17.1C8 17.8 8.6 18.2 9.2 17.8L17.5 12.7C18.1 12.4 18.1 11.6 17.5 11.3L9.2 6.2Z" />
-                  </svg>
-                </button>
-              </div>
+            <div className="zoom-controls">
+              <button onClick={zoomOut}>−</button>
+              <span>{Math.round(zoom * 100)}%</span>
+              <button onClick={zoomIn}>+</button>
+              <button onClick={resetZoom}>Reset</button>
             </div>
           </div>
 

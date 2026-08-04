@@ -3339,3 +3339,351 @@ textarea {
   }
 }
 
+
+
+/* =========================================================
+   BUILT-IN SECTION COLOURS
+   General = blue, Convert = mint, Numbers = yellow,
+   Collections = pink.
+   ========================================================= */
+
+.builtin-template-general {
+  --builtin-color: var(--brand-blue);
+  --builtin-border: #8eb8cf;
+  --builtin-text: #17384a;
+}
+
+.builtin-template-general:hover {
+  --builtin-color: #c7dfef;
+  --builtin-border: #9fc5da;
+  color: #102f40;
+}
+
+.builtin-template-convert {
+  --builtin-color: var(--brand-mint);
+  --builtin-border: #9bc9a6;
+  --builtin-text: #214a31;
+}
+
+.builtin-template-convert:hover {
+  --builtin-color: #d8efdd;
+  --builtin-border: #afd5b7;
+  color: #173923;
+}
+
+.builtin-template-numbers {
+  --builtin-color: var(--brand-yellow);
+  --builtin-border: #cfbd67;
+  --builtin-text: #514511;
+}
+
+.builtin-template-numbers:hover {
+  --builtin-color: #f1e5ae;
+  --builtin-border: #dacb7f;
+  color: #40370d;
+}
+
+.builtin-template-collections {
+  --builtin-color: var(--brand-pink);
+  --builtin-border: #c99fa1;
+  --builtin-text: #542f31;
+}
+
+.builtin-template-collections:hover {
+  --builtin-color: #efd4d5;
+  --builtin-border: #d5b1b3;
+  color: #432426;
+}
+
+/* Keep the parentheses readable in every section. */
+.builtin-template-general .builtin-template-parentheses {
+  color: rgba(23, 56, 74, 0.68);
+}
+
+.builtin-template-convert .builtin-template-parentheses {
+  color: rgba(33, 74, 49, 0.68);
+}
+
+.builtin-template-numbers .builtin-template-parentheses {
+  color: rgba(81, 69, 17, 0.68);
+}
+
+.builtin-template-collections .builtin-template-parentheses {
+  color: rgba(84, 47, 49, 0.68);
+}
+
+/* Section heading accents. */
+.builtin-group-general h2 {
+  color: #a9cfe4;
+}
+
+.builtin-group-convert h2 {
+  color: #b7ddc0;
+}
+
+.builtin-group-numbers h2 {
+  color: #e6d98f;
+}
+
+.builtin-group-collections h2 {
+  color: #dfb9bb;
+}
+
+/* Placed and nested General built-ins. */
+.builtinCall-block.builtin-call-general,
+.nested-expression.builtin-call-expression.builtin-call-general {
+  background: var(--brand-blue);
+  --slot-bg: #eaf4fa;
+  --slot-border: #c8e0ee;
+  --slot-text: #183b50;
+  --slot-placeholder: #64748b;
+}
+
+.builtin-call-general .builtin-call-name {
+  color: #17384a;
+}
+
+/* Placed and nested Convert built-ins. */
+.builtinCall-block.builtin-call-convert,
+.nested-expression.builtin-call-expression.builtin-call-convert {
+  background: var(--brand-mint);
+  --slot-bg: #edf8ef;
+  --slot-border: #cce8d2;
+  --slot-text: #214a31;
+  --slot-placeholder: #64748b;
+}
+
+.builtin-call-convert .builtin-call-name {
+  color: #214a31;
+}
+
+/* Placed and nested Number built-ins. */
+.builtinCall-block.builtin-call-numbers,
+.nested-expression.builtin-call-expression.builtin-call-numbers {
+  background: var(--brand-yellow);
+  --slot-bg: #fbf6dd;
+  --slot-border: #eee2aa;
+  --slot-text: #514511;
+  --slot-placeholder: #6b7280;
+}
+
+.builtin-call-numbers .builtin-call-name {
+  color: #514511;
+}
+
+/* Placed and nested Collection built-ins. */
+.builtinCall-block.builtin-call-collections,
+.nested-expression.builtin-call-expression.builtin-call-collections {
+  background: var(--brand-pink);
+  --slot-bg: #f8e9ea;
+  --slot-border: #eccfd0;
+  --slot-text: #542f31;
+  --slot-placeholder: #6b7280;
+}
+
+.builtin-call-collections .builtin-call-name {
+  color: #542f31;
+}
+
+
+/* =========================================================
+   VARIABLE-ARGUMENT BUILT-INS
+   min() and max() start with two values and can grow.
+   ========================================================= */
+
+.builtin-argument-item {
+  position: relative;
+}
+
+.add-builtin-argument-button,
+.remove-builtin-argument-button {
+  flex: 0 0 auto;
+  border: 1px solid rgba(15, 23, 42, 0.18);
+  color: rgba(15, 23, 42, 0.78);
+  cursor: pointer;
+  font-family: var(--code-font);
+  font-weight: 850;
+  line-height: 1;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease,
+    border-color 0.12s ease,
+    transform 0.12s ease,
+    opacity 0.12s ease;
+}
+
+.add-builtin-argument-button {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  margin-left: 2px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.3);
+  font-size: 16px;
+  opacity: 0.72;
+}
+
+.remove-builtin-argument-button {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  margin-left: -1px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(127, 29, 29, 0.13);
+  color: rgba(127, 29, 29, 0.82);
+  font-size: 12px;
+  opacity: 0.48;
+}
+
+.builtinCall-block:hover .add-builtin-argument-button,
+.builtinCall-block:hover .remove-builtin-argument-button,
+.nested-expression.builtin-call-expression:hover
+  .add-builtin-argument-button,
+.nested-expression.builtin-call-expression:hover
+  .remove-builtin-argument-button {
+  opacity: 1;
+}
+
+.add-builtin-argument-button:hover {
+  background: rgba(255, 255, 255, 0.58);
+  border-color: rgba(15, 23, 42, 0.28);
+  transform: translateY(-1px);
+}
+
+.remove-builtin-argument-button:hover {
+  background: rgba(254, 202, 202, 0.88);
+  color: #991b1b;
+  transform: scale(1.06);
+}
+
+.add-builtin-argument-button:focus-visible,
+.remove-builtin-argument-button:focus-visible {
+  outline: 2px solid rgba(15, 23, 42, 0.28);
+  outline-offset: 1px;
+}
+
+/* =========================================================
+   FINAL CATEGORY COLOUR + SIDEBAR UI OVERRIDES
+   Each block category uses one consistent colour.
+   ========================================================= */
+
+/* Built-in section titles match the grey block-section headings. */
+.builtin-group h2,
+.builtin-group-general h2,
+.builtin-group-convert h2,
+.builtin-group-numbers h2,
+.builtin-group-collections h2 {
+  color: #8b95a7;
+}
+
+/* Basic: variable, print, and return share the same blue. */
+.variable-template,
+.print-template,
+.return-template {
+  background: var(--blue-block);
+}
+
+.variable-block,
+.print-block,
+.return-block {
+  background: var(--blue-block);
+  --slot-bg: #dbeafe;
+  --slot-border: #bfdbfe;
+  --slot-text: #1e3a8a;
+  --slot-placeholder: #475569;
+}
+
+/* Expressions: calculation and logic share the same purple. */
+.calculation-template,
+.logic-template {
+  background: var(--purple-block);
+}
+
+.calculation-block,
+.logic-block,
+.nested-expression.calculation-expression,
+.nested-expression.logic-expression {
+  background: var(--purple-block);
+  --slot-bg: #e9d5ff;
+  --slot-border: #d8b4fe;
+  --slot-text: #581c87;
+  --slot-placeholder: #5b5563;
+}
+
+/* Data: array/list, set, and dictionary share the same mint. */
+.array-template,
+.set-template,
+.dictionary-template {
+  background: var(--mint-block);
+}
+
+.array-block,
+.set-block,
+.dictionary-block,
+.nested-expression.collection-expression {
+  background: var(--mint-block);
+  --slot-bg: #ccfbf1;
+  --slot-border: #99f6e4;
+  --slot-text: #134e4a;
+  --slot-placeholder: #4b5563;
+}
+
+/* Flow: if, for, while, and try/catch share the same yellow. */
+.control-template,
+.try-template {
+  background: var(--yellow-block);
+}
+
+.if-block,
+.while-block,
+.for-block,
+.tryCatch-block {
+  background: var(--yellow-block);
+  --slot-bg: #fef3c7;
+  --slot-border: #fde68a;
+  --slot-text: #78350f;
+  --slot-placeholder: #6b7280;
+}
+
+/* Compact VS Code-style primary action. */
+.create-function-button {
+  width: 100%;
+  min-height: 32px;
+  margin: 0 0 14px;
+  padding: 6px 10px;
+
+  border: 1px solid #1177bb;
+  border-radius: 2px;
+  background: #0e639c;
+  color: #ffffff;
+  box-shadow: none;
+
+  font-family: Inter, Arial, sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
+
+  cursor: pointer;
+  transition:
+    background 0.1s ease,
+    border-color 0.1s ease;
+}
+
+.create-function-button:hover {
+  border-color: #1689d1;
+  background: #1177bb;
+  transform: none;
+}
+
+.create-function-button:active {
+  border-color: #0d5a8c;
+  background: #0d5a8c;
+  transform: none;
+}
+
+.create-function-button:focus-visible {
+  outline: 1px solid #ffffff;
+  outline-offset: 2px;
+}
