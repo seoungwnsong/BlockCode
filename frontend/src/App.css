@@ -1295,7 +1295,9 @@ pre {
 
 .confirm-modal h2 {
   margin: 0 0 8px;
+  color: #f8fafc;
   font-size: 20px;
+  font-weight: 700;
   font-family: Inter, Arial, sans-serif;
 }
 
