@@ -115,9 +115,45 @@ type BuiltinFunctionName =
   | "sorted"
   | "reversed"
   | "all"
-  | "any";
+  | "any"
+  | "list.append"
+  | "list.pop"
+  | "list.insert"
+  | "list.remove"
+  | "list.extend"
+  | "list.index"
+  | "list.count"
+  | "list.sort"
+  | "list.reverse"
+  | "string.upper"
+  | "string.lower"
+  | "string.strip"
+  | "string.split"
+  | "string.join"
+  | "string.replace"
+  | "string.find"
+  | "dict.keys"
+  | "dict.values"
+  | "dict.items"
+  | "dict.get"
+  | "dict.update"
+  | "dict.pop"
+  | "set.add"
+  | "set.remove"
+  | "set.discard"
+  | "set.union"
+  | "set.intersection"
+  | "set.difference";
 
-type BuiltinGroupId = "general" | "convert" | "numbers" | "collections";
+type BuiltinGroupId =
+  | "general"
+  | "convert"
+  | "numbers"
+  | "collections"
+  | "list"
+  | "string"
+  | "dict"
+  | "set";
 
 type BuiltinCallExpression = {
   id: number;
@@ -313,8 +349,63 @@ const BUILTIN_GROUPS: BuiltinGroup[] = [
   },
 ];
 
+const METHOD_GROUPS: BuiltinGroup[] = [
+  {
+    id: "list",
+    title: "List",
+    functions: [
+      { name: "list.append", argLabels: ["list", "value"] },
+      { name: "list.pop", argLabels: ["list"] },
+      { name: "list.insert", argLabels: ["list", "index", "value"] },
+      { name: "list.remove", argLabels: ["list", "value"] },
+      { name: "list.extend", argLabels: ["list", "values"] },
+      { name: "list.index", argLabels: ["list", "value"] },
+      { name: "list.count", argLabels: ["list", "value"] },
+      { name: "list.sort", argLabels: ["list"] },
+      { name: "list.reverse", argLabels: ["list"] },
+    ],
+  },
+  {
+    id: "string",
+    title: "String",
+    functions: [
+      { name: "string.upper", argLabels: ["text"] },
+      { name: "string.lower", argLabels: ["text"] },
+      { name: "string.strip", argLabels: ["text"] },
+      { name: "string.split", argLabels: ["text", "separator"] },
+      { name: "string.join", argLabels: ["separator", "values"] },
+      { name: "string.replace", argLabels: ["text", "old", "new"] },
+      { name: "string.find", argLabels: ["text", "value"] },
+    ],
+  },
+  {
+    id: "dict",
+    title: "Dict",
+    functions: [
+      { name: "dict.keys", argLabels: ["dict"] },
+      { name: "dict.values", argLabels: ["dict"] },
+      { name: "dict.items", argLabels: ["dict"] },
+      { name: "dict.get", argLabels: ["dict", "key"] },
+      { name: "dict.update", argLabels: ["dict", "other"] },
+      { name: "dict.pop", argLabels: ["dict", "key"] },
+    ],
+  },
+  {
+    id: "set",
+    title: "Set",
+    functions: [
+      { name: "set.add", argLabels: ["set", "value"] },
+      { name: "set.remove", argLabels: ["set", "value"] },
+      { name: "set.discard", argLabels: ["set", "value"] },
+      { name: "set.union", argLabels: ["set", "other"] },
+      { name: "set.intersection", argLabels: ["set", "other"] },
+      { name: "set.difference", argLabels: ["set", "other"] },
+    ],
+  },
+];
+
 function getBuiltinDefinition(name: BuiltinFunctionName): BuiltinDefinition {
-  for (const group of BUILTIN_GROUPS) {
+  for (const group of [...BUILTIN_GROUPS, ...METHOD_GROUPS]) {
     const definition = group.functions.find((item) => item.name === name);
     if (definition) return definition;
   }
@@ -323,7 +414,7 @@ function getBuiltinDefinition(name: BuiltinFunctionName): BuiltinDefinition {
 }
 
 function getBuiltinGroupId(name: BuiltinFunctionName): BuiltinGroupId {
-  for (const group of BUILTIN_GROUPS) {
+  for (const group of [...BUILTIN_GROUPS, ...METHOD_GROUPS]) {
     if (group.functions.some((item) => item.name === name)) {
       return group.id;
     }
@@ -2647,6 +2738,9 @@ function App() {
   const [openFunctionTabIds, setOpenFunctionTabIds] = useState<number[]>([]);
   const [activeBlockCategory, setActiveBlockCategory] =
     useState<BlockCategory>("basics");
+  const [builtinSidebarView, setBuiltinSidebarView] = useState<
+    "builtins" | "methods"
+  >("builtins");
 
   const editingFunction =
     editingFunctionId === null
@@ -4758,11 +4852,49 @@ function App() {
 
       <aside className="function-sidebar builtin-sidebar app-font">
         <div className="sidebar-header">
-          <h1>Built-ins</h1>
+          <h1>{builtinSidebarView === "builtins" ? "Built-ins" : "Methods"}</h1>
+        </div>
+
+        <div
+          className="block-category-tabs builtin-sidebar-tabs"
+          role="tablist"
+          aria-label="Built-in library view"
+        >
+          <button
+            type="button"
+            role="tab"
+            aria-selected={builtinSidebarView === "builtins"}
+            className={`block-category-tab ${
+              builtinSidebarView === "builtins"
+                ? "active-block-category-tab"
+                : ""
+            }`}
+            title="Global built-in functions"
+            onClick={() => setBuiltinSidebarView("builtins")}
+          >
+            Built-ins
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={builtinSidebarView === "methods"}
+            className={`block-category-tab ${
+              builtinSidebarView === "methods"
+                ? "active-block-category-tab"
+                : ""
+            }`}
+            title="Data structure methods"
+            onClick={() => setBuiltinSidebarView("methods")}
+          >
+            Methods
+          </button>
         </div>
 
         <div className="builtin-groups">
-          {BUILTIN_GROUPS.map((group) => (
+          {(builtinSidebarView === "builtins"
+            ? BUILTIN_GROUPS
+            : METHOD_GROUPS
+          ).map((group) => (
             <section
               className={`builtin-group builtin-group-${group.id}`}
               key={group.id}
