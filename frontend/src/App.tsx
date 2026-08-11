@@ -3707,6 +3707,10 @@ function App() {
     definition: BuiltinDefinition,
     groupId: BuiltinGroupId
   ) {
+    const shortName = definition.name.includes(".")
+      ? definition.name.split(".")[1]
+      : definition.name;
+
     return (
       <div
         key={definition.name}
@@ -3719,7 +3723,7 @@ function App() {
         onClick={() => addBuiltinCall(definition.name)}
         title={`${definition.name}(${definition.argLabels.join(", ")})`}
       >
-        <span className="builtin-template-name">{definition.name}</span>
+        <span className="builtin-template-name">{shortName}</span>
         <span className="builtin-template-parentheses">()</span>
       </div>
     );

@@ -3860,3 +3860,32 @@ textarea {
 .create-function-button:hover::before {
   border-color: #d4e2f5;
 }
+
+/* =========================================================
+   ANGLED BLOCK SHAPE
+   App-wide override: every block loses its soft, rounded
+   corners for a sharper, more geometric silhouette. Wins the
+   cascade by sitting last, so it overrides the border-radius
+   set earlier for each block type without touching those rules.
+   ========================================================= */
+
+.template-block,
+.builtin-template,
+.scratch-block,
+.nested-expression,
+.expression-slot,
+.create-function-button {
+  border-radius: 3px;
+}
+
+.template-block::before,
+.scratch-block::before,
+.create-function-button::before {
+  border-radius: 2px 2px 0 0;
+}
+
+.template-block::after,
+.scratch-block::after,
+.create-function-button::after {
+  border-radius: 0 0 2px 2px;
+}
