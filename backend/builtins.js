@@ -17,10 +17,11 @@
 // ValueError, an empty min()/max() is a ValueError, a mutable dict key is this
 // language's KeyError.
 
-const { typeName, ValueError, KeyError } = require('./errors');
+const { typeName, ValueError, KeyError, IndexError } = require('./errors');
 const {
-    PyTuple, lengthOf, iterate, pyBool, pyStr, isMutable,
+    PyTuple, lengthOf, iterate, pyBool, pyStr, pyRepr, isMutable,
 } = require('./object');
+const { pyEquals } = require('./operations');
 
 // ---------------------------------------------------------------------------
 // Ordering — Python 3's rich comparison, the part min/max/sorted rely on.
@@ -203,6 +204,49 @@ function extreme(name, args, keep) {
 }
 
 // ---------------------------------------------------------------------------
+// Method-style built-ins: list.* / string.* / dict.* / set.*
+// ---------------------------------------------------------------------------
+// The frontend advertises these under a `builtinCall` whose `name` carries the
+// dotted method (e.g. "list.append"). Our calling convention is function-style:
+// the RECEIVER arrives as the first already-evaluated value, so `list.append`
+// gets [theList, value]. Because a list is a JS Array, a set a JS Set and a dict
+// a JS Map — all reference types shared with `env` — the mutating methods mutate
+// the receiver IN PLACE, exactly as Python does, and return None (represented as
+// `null`). The non-mutating ones (string.*, set.union, dict.keys, …) build and
+// return fresh values; strings are immutable, so every string.* returns a new
+// string rather than editing its receiver.
+
+const NONE = null;   // Python None
+
+const isList = (v) => Array.isArray(v);
+const isStr  = (v) => typeof v === 'string';
+const isDict = (v) => v instanceof Map;
+const isSet  = (v) => v instanceof Set;
+
+// Guard the receiver's type with a Python-shaped message. `fn` is the dotted
+// method name so the error reads e.g. "list.append() requires a list, not int".
+function receiver(fn, value, predicate, typeLabel) {
+    if (!predicate(value)) {
+        throw new TypeError(`${fn}() requires a ${typeLabel}, not '${typeName(value)}'`);
+    }
+    return value;
+}
+
+// A set/dict element or key must be hashable — the same rule the literals use.
+function requireHashable(value) {
+    if (isMutable(value)) throw new TypeError(`unhashable type: '${typeName(value)}'`);
+    return value;
+}
+
+// A whole-number index for list.pop / list.insert.
+function requireIndex(fn, value) {
+    if (!Number.isInteger(value) && typeof value !== 'boolean') {
+        throw new TypeError(`'${typeName(value)}' object cannot be interpreted as an integer`);
+    }
+    return Number(value);
+}
+
+// ---------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------
 const BUILTINS = {
@@ -264,6 +308,208 @@ const BUILTINS = {
     sorted: (a) => {
         exactly('sorted', a, 1);
         return iterate(a[0]).sort(pyCompare);
+    },
+    // reversed(x): Python yields a reverse iterator; we return a reversed list,
+    // mirroring sorted() which also materialises a list.
+    reversed: (a) => { exactly('reversed', a, 1); return iterate(a[0]).reverse(); },
+    // all/any over an iterable, using Python truthiness. all([]) is True, any([])
+    // is False — the standard empty-iterable identities.
+    all: (a) => { exactly('all', a, 1); return iterate(a[0]).every(pyBool); },
+    any: (a) => { exactly('any', a, 1); return iterate(a[0]).some(pyBool); },
+
+    // -----------------------------------------------------------------------
+    // list.* — mutate the receiver array in place (shared with env), return None
+    // unless the method is defined to hand a value back (pop/index/count).
+    // -----------------------------------------------------------------------
+    'list.append': (a) => {
+        exactly('list.append', a, 2);
+        receiver('list.append', a[0], isList, 'list').push(a[1]);
+        return NONE;
+    },
+    'list.pop': (a) => {
+        between('list.pop', a, 1, 2);
+        const lst = receiver('list.pop', a[0], isList, 'list');
+        if (lst.length === 0) throw new IndexError('pop from empty list');
+        let i = a.length === 2 ? requireIndex('list.pop', a[1]) : -1;
+        if (i < 0) i += lst.length;
+        if (i < 0 || i >= lst.length) throw new IndexError('pop index out of range');
+        return lst.splice(i, 1)[0];
+    },
+    'list.insert': (a) => {
+        exactly('list.insert', a, 3);
+        const lst = receiver('list.insert', a[0], isList, 'list');
+        let i = requireIndex('list.insert', a[1]);
+        // Python clamps rather than raising: a huge index appends, a very
+        // negative one prepends.
+        if (i < 0) i = Math.max(0, i + lst.length);
+        else       i = Math.min(i, lst.length);
+        lst.splice(i, 0, a[2]);
+        return NONE;
+    },
+    'list.remove': (a) => {
+        exactly('list.remove', a, 2);
+        const lst = receiver('list.remove', a[0], isList, 'list');
+        const i = lst.findIndex((el) => pyEquals(el, a[1]));
+        if (i === -1) throw new ValueError('list.remove(x): x not in list');
+        lst.splice(i, 1);
+        return NONE;
+    },
+    'list.extend': (a) => {
+        exactly('list.extend', a, 2);
+        const lst = receiver('list.extend', a[0], isList, 'list');
+        for (const v of iterate(a[1])) lst.push(v);
+        return NONE;
+    },
+    'list.index': (a) => {
+        exactly('list.index', a, 2);
+        const lst = receiver('list.index', a[0], isList, 'list');
+        const i = lst.findIndex((el) => pyEquals(el, a[1]));
+        if (i === -1) throw new ValueError(`${pyRepr(a[1])} is not in list`);
+        return i;
+    },
+    'list.count': (a) => {
+        exactly('list.count', a, 2);
+        const lst = receiver('list.count', a[0], isList, 'list');
+        return lst.reduce((n, el) => n + (pyEquals(el, a[1]) ? 1 : 0), 0);
+    },
+    'list.sort': (a) => {
+        exactly('list.sort', a, 1);
+        receiver('list.sort', a[0], isList, 'list').sort(pyCompare);
+        return NONE;
+    },
+    'list.reverse': (a) => {
+        exactly('list.reverse', a, 1);
+        receiver('list.reverse', a[0], isList, 'list').reverse();
+        return NONE;
+    },
+
+    // -----------------------------------------------------------------------
+    // string.* — strings are immutable, so each returns a NEW value.
+    // -----------------------------------------------------------------------
+    'string.upper': (a) => { exactly('string.upper', a, 1); return receiver('string.upper', a[0], isStr, 'str').toUpperCase(); },
+    'string.lower': (a) => { exactly('string.lower', a, 1); return receiver('string.lower', a[0], isStr, 'str').toLowerCase(); },
+    // strip() with no argument removes leading/trailing WHITESPACE.
+    'string.strip': (a) => { exactly('string.strip', a, 1); return receiver('string.strip', a[0], isStr, 'str').trim(); },
+    'string.split': (a) => {
+        between('string.split', a, 1, 2);
+        const s = receiver('string.split', a[0], isStr, 'str');
+        // No separator -> split on runs of whitespace, dropping empty pieces
+        // (Python's default). A given separator splits literally.
+        if (a.length === 1 || a[1] === null || a[1] === undefined) {
+            return s.split(/\s+/).filter((piece) => piece.length > 0);
+        }
+        const sep = receiver('string.split', a[1], isStr, 'str');
+        if (sep === '') throw new ValueError('empty separator');
+        return s.split(sep);
+    },
+    'string.join': (a) => {
+        exactly('string.join', a, 2);
+        const sep = receiver('string.join', a[0], isStr, 'str');
+        const parts = iterate(a[1]);
+        parts.forEach((v, i) => {
+            if (!isStr(v)) {
+                throw new TypeError(`sequence item ${i}: expected str instance, ${typeName(v)} found`);
+            }
+        });
+        return parts.join(sep);
+    },
+    'string.replace': (a) => {
+        exactly('string.replace', a, 3);
+        const s   = receiver('string.replace', a[0], isStr, 'str');
+        const old = receiver('string.replace', a[1], isStr, 'str');
+        const neu = receiver('string.replace', a[2], isStr, 'str');
+        return s.split(old).join(neu);   // replace ALL, like Python
+    },
+    'string.find': (a) => {
+        exactly('string.find', a, 2);
+        const s   = receiver('string.find', a[0], isStr, 'str');
+        const sub = receiver('string.find', a[1], isStr, 'str');
+        return s.indexOf(sub);   // -1 when absent, matching str.find
+    },
+
+    // -----------------------------------------------------------------------
+    // dict.* — the receiver is a JS Map. keys/values/items return fresh lists.
+    // -----------------------------------------------------------------------
+    'dict.keys':   (a) => { exactly('dict.keys', a, 1);   return [...receiver('dict.keys', a[0], isDict, 'dict').keys()]; },
+    'dict.values': (a) => { exactly('dict.values', a, 1); return [...receiver('dict.values', a[0], isDict, 'dict').values()]; },
+    'dict.items':  (a) => {
+        exactly('dict.items', a, 1);
+        // Each (key, value) pair is a tuple, as Python's dict.items() yields.
+        return [...receiver('dict.items', a[0], isDict, 'dict')].map(([k, v]) => new PyTuple([k, v]));
+    },
+    'dict.get': (a) => {
+        between('dict.get', a, 2, 3);
+        const d = receiver('dict.get', a[0], isDict, 'dict');
+        // Missing key returns the default (None when none is supplied) — never
+        // a KeyError, which is what makes get different from indexing.
+        return d.has(a[1]) ? d.get(a[1]) : (a.length === 3 ? a[2] : NONE);
+    },
+    'dict.update': (a) => {
+        exactly('dict.update', a, 2);
+        const d = receiver('dict.update', a[0], isDict, 'dict');
+        const other = a[1];
+        if (isDict(other)) {
+            for (const [k, v] of other) d.set(k, v);
+        } else {
+            // Also accept an iterable of key/value pairs, as dict.update does.
+            let i = 0;
+            for (const pair of iterate(other)) {
+                const items = isList(pair) ? pair : pair instanceof PyTuple ? pair.items : null;
+                if (!items || items.length !== 2) {
+                    throw new ValueError(`dictionary update sequence element #${i} has length ${items ? items.length : 1}; 2 is required`);
+                }
+                d.set(requireHashable(items[0]), items[1]);
+                i++;
+            }
+        }
+        return NONE;
+    },
+    'dict.pop': (a) => {
+        between('dict.pop', a, 2, 3);
+        const d = receiver('dict.pop', a[0], isDict, 'dict');
+        if (d.has(a[1])) { const v = d.get(a[1]); d.delete(a[1]); return v; }
+        if (a.length === 3) return a[2];
+        throw new KeyError(pyRepr(a[1]));
+    },
+
+    // -----------------------------------------------------------------------
+    // set.* — the receiver is a JS Set. add/remove/discard mutate; the algebra
+    // operations (union/intersection/difference) return a NEW set.
+    // -----------------------------------------------------------------------
+    'set.add': (a) => {
+        exactly('set.add', a, 2);
+        receiver('set.add', a[0], isSet, 'set').add(requireHashable(a[1]));
+        return NONE;
+    },
+    'set.remove': (a) => {
+        exactly('set.remove', a, 2);
+        const s = receiver('set.remove', a[0], isSet, 'set');
+        if (!s.has(a[1])) throw new KeyError(pyRepr(a[1]));
+        s.delete(a[1]);
+        return NONE;
+    },
+    'set.discard': (a) => {
+        exactly('set.discard', a, 2);
+        receiver('set.discard', a[0], isSet, 'set').delete(a[1]);   // no error when absent
+        return NONE;
+    },
+    'set.union': (a) => {
+        exactly('set.union', a, 2);
+        const s = receiver('set.union', a[0], isSet, 'set');
+        const other = receiver('set.union', a[1], isSet, 'set');
+        return new Set([...s, ...other]);
+    },
+    'set.intersection': (a) => {
+        exactly('set.intersection', a, 2);
+        const s = receiver('set.intersection', a[0], isSet, 'set');
+        const other = receiver('set.intersection', a[1], isSet, 'set');
+        return new Set([...s].filter((v) => other.has(v)));
+    },
+    'set.difference': (a) => {
+        exactly('set.difference', a, 2);
+        const s = receiver('set.difference', a[0], isSet, 'set');
+        const other = receiver('set.difference', a[1], isSet, 'set');
+        return new Set([...s].filter((v) => !other.has(v)));
     },
 };
 

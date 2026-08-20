@@ -205,4 +205,4 @@ class BoolOp extends Expr {
     }
 }
 
-module.exports = { BinaryOperator, Compare, Bool, BoolOp };
+module.exports = { BinaryOperator, Compare, Bool, BoolOp, pyEquals };

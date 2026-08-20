@@ -1087,5 +1087,155 @@ t('#33  max of a single non-iterable is a TypeError', evalBI(bi('max', lit('int'
   (r, e) => { if (!e.length || e[0].errorType !== 'TypeError' || !/not iterable/.test(e[0].message)) throw new Error('expected not-iterable TypeError'); });
 
 // ===========================================================================
+// #34  collection helpers: reversed / all / any
+// ===========================================================================
+t('#34  reversed of a list', evalBI(bi('reversed', arr(lit('int', 1), lit('int', 2), lit('int', 3)))),
+  (r, e) => { noErr(e); eq(r.variables.r, [3, 2, 1], 'reversed'); });
+t('#34  all is true when every element is truthy', evalBI(bi('all', arr(lit('int', 1), lit('bool', true)))),
+  (r, e) => { noErr(e); eq(r.variables.r, true, 'all true'); });
+t('#34  all is false with a falsy element', evalBI(bi('all', arr(lit('int', 1), lit('int', 0)))),
+  (r, e) => { noErr(e); eq(r.variables.r, false, 'all false'); });
+t('#34  all of an empty list is true', evalBI(bi('all', { type: 'array' })),
+  (r, e) => { noErr(e); eq(r.variables.r, true, 'all empty'); });
+t('#34  any is true when one element is truthy', evalBI(bi('any', arr(lit('int', 0), lit('int', 5)))),
+  (r, e) => { noErr(e); eq(r.variables.r, true, 'any true'); });
+t('#34  any of an empty list is false', evalBI(bi('any', { type: 'array' })),
+  (r, e) => { noErr(e); eq(r.variables.r, false, 'any empty'); });
+
+// ===========================================================================
+// #35  list.* methods — mutate the bound variable in place
+// ===========================================================================
+// A method statement runs for its side effect on the list variable `x`.
+const withList = (methodBlock, items = [lit('int', 1), lit('int', 2), lit('int', 3)]) => ({
+    blocks: [
+        { id: 1, type: 'variable', name: 'x', value: { type: 'array', items } },
+        { id: 2, ...methodBlock },
+    ],
+});
+
+t('#35  list.append mutates in place', withList(bi('list.append', ref('x'), lit('int', 4))),
+  (r, e) => { noErr(e); eq(r.variables.x, [1, 2, 3, 4], 'append'); });
+t('#35  list.pop returns and removes the last element',
+  { blocks: [
+      { id: 1, type: 'variable', name: 'x', value: arr(lit('int', 1), lit('int', 2), lit('int', 3)) },
+      { id: 2, type: 'variable', name: 'r', value: bi('list.pop', ref('x')) },
+  ] },
+  (r, e) => { noErr(e); eq(r.variables.r, 3, 'pop val'); eq(r.variables.x, [1, 2], 'pop rest'); });
+t('#35  list.pop from an empty list is IndexError',
+  { blocks: [
+      { id: 1, type: 'variable', name: 'x', value: { type: 'array' } },
+      { id: 2, type: 'variable', name: 'r', value: bi('list.pop', ref('x')) },
+  ] },
+  (r, e) => { if (!e.length || e[0].errorType !== 'IndexError' || !/empty list/.test(e[0].message)) throw new Error('expected pop IndexError'); });
+t('#35  list.insert places at an index', withList(bi('list.insert', ref('x'), lit('int', 1), lit('int', 9))),
+  (r, e) => { noErr(e); eq(r.variables.x, [1, 9, 2, 3], 'insert'); });
+t('#35  list.remove drops the first matching value', withList(bi('list.remove', ref('x'), lit('int', 2))),
+  (r, e) => { noErr(e); eq(r.variables.x, [1, 3], 'remove'); });
+t('#35  list.remove of an absent value is ValueError', withList(bi('list.remove', ref('x'), lit('int', 99))),
+  (r, e) => { if (!e.length || e[0].errorType !== 'ValueError' || !/not in list/.test(e[0].message)) throw new Error('expected remove ValueError'); });
+t('#35  list.extend appends every element',
+  withList(bi('list.extend', ref('x'), arr(lit('int', 4), lit('int', 5)))),
+  (r, e) => { noErr(e); eq(r.variables.x, [1, 2, 3, 4, 5], 'extend'); });
+t('#35  list.index reports the position',
+  { blocks: [
+      { id: 1, type: 'variable', name: 'x', value: arr(lit('int', 7), lit('int', 8), lit('int', 9)) },
+      { id: 2, type: 'variable', name: 'r', value: bi('list.index', ref('x'), lit('int', 8)) },
+  ] },
+  (r, e) => { noErr(e); eq(r.variables.r, 1, 'index'); });
+t('#35  list.count tallies matches',
+  { blocks: [
+      { id: 1, type: 'variable', name: 'x', value: arr(lit('int', 1), lit('int', 2), lit('int', 2)) },
+      { id: 2, type: 'variable', name: 'r', value: bi('list.count', ref('x'), lit('int', 2)) },
+  ] },
+  (r, e) => { noErr(e); eq(r.variables.r, 2, 'count'); });
+t('#35  list.sort orders in place',
+  withList(bi('list.sort', ref('x')), [lit('int', 3), lit('int', 1), lit('int', 2)]),
+  (r, e) => { noErr(e); eq(r.variables.x, [1, 2, 3], 'sort'); });
+t('#35  list.reverse flips in place', withList(bi('list.reverse', ref('x'))),
+  (r, e) => { noErr(e); eq(r.variables.x, [3, 2, 1], 'reverse'); });
+t('#35  a list method on a non-list is a TypeError', evalBI(bi('list.append', lit('int', 5), lit('int', 1))),
+  (r, e) => { if (!e.length || e[0].errorType !== 'TypeError' || !/requires a list/.test(e[0].message)) throw new Error('expected list TypeError'); });
+
+// ===========================================================================
+// #36  string.* methods — return new strings/lists, never mutate
+// ===========================================================================
+t('#36  string.upper', evalBI(bi('string.upper', lit('string', 'abc'))),
+  (r, e) => { noErr(e); eq(r.variables.r, 'ABC', 'upper'); });
+t('#36  string.lower', evalBI(bi('string.lower', lit('string', 'AbC'))),
+  (r, e) => { noErr(e); eq(r.variables.r, 'abc', 'lower'); });
+t('#36  string.strip trims whitespace', evalBI(bi('string.strip', lit('string', '  hi  '))),
+  (r, e) => { noErr(e); eq(r.variables.r, 'hi', 'strip'); });
+t('#36  string.split on whitespace by default', evalBI(bi('string.split', lit('string', 'a b  c'))),
+  (r, e) => { noErr(e); eq(r.variables.r, ['a', 'b', 'c'], 'split ws'); });
+t('#36  string.split on a separator', evalBI(bi('string.split', lit('string', 'a,b,c'), lit('string', ','))),
+  (r, e) => { noErr(e); eq(r.variables.r, ['a', 'b', 'c'], 'split sep'); });
+t('#36  string.join', evalBI(bi('string.join', lit('string', '-'), arr(lit('string', 'a'), lit('string', 'b')))),
+  (r, e) => { noErr(e); eq(r.variables.r, 'a-b', 'join'); });
+t('#36  string.join of a non-string element is a TypeError',
+  evalBI(bi('string.join', lit('string', '-'), arr(lit('string', 'a'), lit('int', 2)))),
+  (r, e) => { if (!e.length || e[0].errorType !== 'TypeError' || !/expected str instance/.test(e[0].message)) throw new Error('expected join TypeError'); });
+t('#36  string.replace swaps all occurrences',
+  evalBI(bi('string.replace', lit('string', 'aXaXa'), lit('string', 'X'), lit('string', '-'))),
+  (r, e) => { noErr(e); eq(r.variables.r, 'a-a-a', 'replace'); });
+t('#36  string.find returns the index', evalBI(bi('string.find', lit('string', 'hello'), lit('string', 'l'))),
+  (r, e) => { noErr(e); eq(r.variables.r, 2, 'find'); });
+t('#36  string.find returns -1 when absent', evalBI(bi('string.find', lit('string', 'hello'), lit('string', 'z'))),
+  (r, e) => { noErr(e); eq(r.variables.r, -1, 'find absent'); });
+
+// ===========================================================================
+// #37  dict.* methods
+// ===========================================================================
+const d2 = () => dict(entry(lit('string', 'a'), lit('int', 1)), entry(lit('string', 'b'), lit('int', 2)));
+t('#37  dict.keys', evalBI(bi('dict.keys', d2())),
+  (r, e) => { noErr(e); eq(r.variables.r, ['a', 'b'], 'keys'); });
+t('#37  dict.values', evalBI(bi('dict.values', d2())),
+  (r, e) => { noErr(e); eq(r.variables.r, [1, 2], 'values'); });
+t('#37  dict.items yields pairs', evalBI(bi('dict.items', d2())),
+  (r, e) => { noErr(e); eq(r.variables.r, [['a', 1], ['b', 2]], 'items'); });
+t('#37  dict.get returns the value', evalBI(bi('dict.get', d2(), lit('string', 'a'))),
+  (r, e) => { noErr(e); eq(r.variables.r, 1, 'get hit'); });
+t('#37  dict.get of a missing key returns None', evalBI(bi('dict.get', d2(), lit('string', 'z'))),
+  (r, e) => { noErr(e); eq(r.variables.r, null, 'get miss'); });
+t('#37  dict.update merges in place',
+  { blocks: [
+      { id: 1, type: 'variable', name: 'x', value: dict(entry(lit('string', 'a'), lit('int', 1))) },
+      { id: 2, type: 'builtinCall', name: 'dict.update', args: [ref('x'), dict(entry(lit('string', 'b'), lit('int', 2)))] },
+  ] },
+  (r, e) => { noErr(e); eq(r.variables.x, { a: 1, b: 2 }, 'update'); });
+t('#37  dict.pop returns and removes',
+  { blocks: [
+      { id: 1, type: 'variable', name: 'x', value: dict(entry(lit('string', 'a'), lit('int', 1)), entry(lit('string', 'b'), lit('int', 2))) },
+      { id: 2, type: 'variable', name: 'r', value: bi('dict.pop', ref('x'), lit('string', 'a')) },
+  ] },
+  (r, e) => { noErr(e); eq(r.variables.r, 1, 'pop val'); eq(r.variables.x, { b: 2 }, 'pop rest'); });
+t('#37  dict.pop of a missing key is KeyError', evalBI(bi('dict.pop', d2(), lit('string', 'z'))),
+  (r, e) => { if (!e.length || e[0].errorType !== 'KeyError') throw new Error('expected pop KeyError'); });
+
+// ===========================================================================
+// #38  set.* methods
+// ===========================================================================
+const s3 = () => set(lit('int', 1), lit('int', 2), lit('int', 3));
+t('#38  set.add mutates in place',
+  { blocks: [
+      { id: 1, type: 'variable', name: 'x', value: set(lit('int', 1)) },
+      { id: 2, type: 'builtinCall', name: 'set.add', args: [ref('x'), lit('int', 2)] },
+  ] },
+  (r, e) => { noErr(e); eq(r.variables.x.sort(), [1, 2], 'add'); });
+t('#38  set.remove of a missing element is KeyError', evalBI(bi('set.remove', s3(), lit('int', 9))),
+  (r, e) => { if (!e.length || e[0].errorType !== 'KeyError') throw new Error('expected remove KeyError'); });
+t('#38  set.discard of a missing element is silent',
+  { blocks: [
+      { id: 1, type: 'variable', name: 'x', value: set(lit('int', 1), lit('int', 2)) },
+      { id: 2, type: 'builtinCall', name: 'set.discard', args: [ref('x'), lit('int', 9)] },
+  ] },
+  (r, e) => { noErr(e); eq(r.variables.x.sort(), [1, 2], 'discard'); });
+t('#38  set.union', evalBI(bi('set.union', set(lit('int', 1), lit('int', 2)), set(lit('int', 2), lit('int', 3)))),
+  (r, e) => { noErr(e); eq(r.variables.r.sort(), [1, 2, 3], 'union'); });
+t('#38  set.intersection', evalBI(bi('set.intersection', set(lit('int', 1), lit('int', 2)), set(lit('int', 2), lit('int', 3)))),
+  (r, e) => { noErr(e); eq(r.variables.r, [2], 'intersection'); });
+t('#38  set.difference', evalBI(bi('set.difference', set(lit('int', 1), lit('int', 2)), set(lit('int', 2), lit('int', 3)))),
+  (r, e) => { noErr(e); eq(r.variables.r, [1], 'difference'); });
+
+// ===========================================================================
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
