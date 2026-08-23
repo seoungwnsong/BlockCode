@@ -3673,6 +3673,31 @@ function App() {
         return;
       }
 
+      // A block that failed while running is reported per-block in `results`
+      // (the server still answers 200 with status "done"). Python stops at the
+      // first error, so runProgram records one error entry and halts — surface
+      // it here instead of letting the run look like it finished silently.
+      type RunResult = {
+        status?: string;
+        errorType?: string;
+        message?: string;
+      };
+      const runErrors = (Array.isArray(data.results) ? data.results : []).filter(
+        (entry: RunResult) => entry && entry.status === "error"
+      );
+
+      if (runErrors.length > 0) {
+        // Keep any output printed before the failure, then the error line(s),
+        // the way a Python traceback follows whatever was already printed.
+        const priorOutput = Array.isArray(data.output) ? data.output : [];
+        const errorLines = runErrors.map(
+          (entry: RunResult) =>
+            `${entry.errorType || "Error"}: ${entry.message || "Program could not run."}`
+        );
+        setResult([...priorOutput, ...errorLines].join("\n"));
+        return;
+      }
+
       if (Array.isArray(data.output) && data.output.length > 0) {
         setResult(data.output.join("\n"));
         return;
