@@ -1237,5 +1237,38 @@ t('#38  set.difference', evalBI(bi('set.difference', set(lit('int', 1), lit('int
   (r, e) => { noErr(e); eq(r.variables.r, [1], 'difference'); });
 
 // ===========================================================================
+// #39  and / or return an OPERAND (Python), not a boolean
+// ===========================================================================
+// print(x and y) with x,y = 0,1 must show 0, not False.
+t('#39  print(0 and 1) shows 0', printBI(logic(lit('int', 0), 'and', lit('int', 1))),
+  (r, e) => { noErr(e); eq(r.output, ['0'], 'and value'); });
+t('#39  print(0 or 1) shows 1', printBI(logic(lit('int', 0), 'or', lit('int', 1))),
+  (r, e) => { noErr(e); eq(r.output, ['1'], 'or value'); });
+t('#39  print(2 and 3) shows 3 (last when both truthy)', printBI(logic(lit('int', 2), 'and', lit('int', 3))),
+  (r, e) => { noErr(e); eq(r.output, ['3'], 'and last'); });
+t('#39  print(2 or 3) shows 2 (first truthy)', printBI(logic(lit('int', 2), 'or', lit('int', 3))),
+  (r, e) => { noErr(e); eq(r.output, ['2'], 'or first'); });
+// The reported flow: x,y = 0,1 ; z = x and y  -> z is 0, not False.
+t('#39  z = x and y keeps the operand value',
+  { blocks: [
+      { id: 1, type: 'parallelAssign', targets: ['x', 'y'], values: [lit('int', 0), lit('int', 1)] },
+      { id: 2, type: 'variable', name: 'z', value: logic(ref('x'), 'and', ref('y')) },
+  ] },
+  (r, e) => { noErr(e); eq(r.variables.z, 0, 'z'); });
+// Python truthiness for containers: [] is falsy, so [] and 1 -> [].
+t('#39  [] and 1 returns the empty list', printBI(logic({ type: 'array' }, 'and', lit('int', 1))),
+  (r, e) => { noErr(e); eq(r.output, ['[]'], 'empty-list and'); });
+// Free-form (parser) path agrees with the structured path.
+t('#39  free-form "0 and 1" shows 0', printBI({ type: 'expression', value: '0 and 1' }),
+  (r, e) => { noErr(e); eq(r.output, ['0'], 'parser and'); });
+t('#39  free-form "0 or 1" shows 1', printBI({ type: 'expression', value: '0 or 1' }),
+  (r, e) => { noErr(e); eq(r.output, ['1'], 'parser or'); });
+// `not` still yields a boolean, but with Python truthiness: not [] is True.
+t('#39  not [] is True', printBI({ type: 'not', value: { type: 'array' } }),
+  (r, e) => { noErr(e); eq(r.output, ['True'], 'not empty list'); });
+t('#39  not 0 is True', printBI({ type: 'not', value: lit('int', 0) }),
+  (r, e) => { noErr(e); eq(r.output, ['True'], 'not zero'); });
+
+// ===========================================================================
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

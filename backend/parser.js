@@ -1,5 +1,6 @@
 const { BinaryOperator, Compare } = require('./operations');
 const { num, Booleans, Strings } = require('./permitivedatatypes');
+const { pyBool } = require('./object');
 // function.js requires nothing, so this direction adds no cycle.
 const { Call } = require('./function');
 const { NameError, typeName } = require('./errors');
@@ -81,7 +82,7 @@ function parse(input) {
         return left;
     }
     function parseNot() {
-        if (peek().type === 'op' && peek().value === 'not') { next(); const operand = parseNot(); return { evaluate: env => !operand.evaluate(env) }; }
+        if (peek().type === 'op' && peek().value === 'not') { next(); const operand = parseNot(); return { evaluate: env => !pyBool(operand.evaluate(env)) }; }
         return parseComparison();
     }
     // #18: collect the whole chain into ONE Compare node.

@@ -1,7 +1,7 @@
 ///just for testing
 const { Expr } = require('./permitivedatatypes');
 const { ZeroDivisionError, typeName } = require('./errors');
-const { PyTuple } = require('./object');
+const { PyTuple, pyBool } = require('./object');
 
 // Python VALUE equality, the meaning of == / != (identity `is` lives in
 // identity.js and is a different question). Scalars fall through to JS ===, so
@@ -75,10 +75,14 @@ class BinaryOperator extends Expr {
         const left = this.left.evaluate(env);
 
         // #19: short-circuit BEFORE touching the right side, so
-        // `false and (1 / 0)` no longer throws. (BoolOp already
-        // short-circuits via .every/.some — this is the parser path.)
-        if (this.op === "and") return left && this.right.evaluate(env);
-        if (this.op === "or")  return left || this.right.evaluate(env);
+        // `false and (1 / 0)` no longer throws.
+        // Python's `and`/`or` return one of the OPERANDS, not a boolean:
+        //   `0 and 1` -> 0,  `0 or 1` -> 1,  `2 and 3` -> 3.
+        // And they decide with PYTHON truthiness (pyBool), so an empty
+        // container is falsy — `[] and 1` -> [] — which raw JS && would get
+        // wrong ([] is truthy in JS).
+        if (this.op === "and") return pyBool(left) ? this.right.evaluate(env) : left;
+        if (this.op === "or")  return pyBool(left) ? left : this.right.evaluate(env);
 
         const right = this.right.evaluate(env);
 
@@ -199,9 +203,19 @@ class BoolOp extends Expr {
         this.values = values;
     }
     evaluate(env) {
-        if (this.op === "and") return this.values.every(v => v.evaluate(env));
-        if (this.op === "or")  return this.values.some(v  => v.evaluate(env));
-        return false;
+        // Python semantics, matching BinaryOperator above: return the operand
+        // that decides the result, not a boolean, using pyBool for truthiness.
+        //   `and` -> the first falsy operand, else the last operand
+        //   `or`  -> the first truthy operand, else the last operand
+        // Evaluation short-circuits: operands past the deciding one are never
+        // touched (`x or 1 / 0` is safe when x is truthy).
+        let result;
+        for (const value of this.values) {
+            result = value.evaluate(env);
+            if (this.op === "and" && !pyBool(result)) return result;
+            if (this.op === "or"  &&  pyBool(result)) return result;
+        }
+        return result;
     }
 }
 

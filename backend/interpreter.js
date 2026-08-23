@@ -3,7 +3,7 @@ const {
 } = require('./flowstatement');
 const { BinaryOperator, Compare, BoolOp } = require('./operations');
 const { num, Booleans, Strings } = require('./permitivedatatypes');
-const { PyList, PySet, PyDict, PyTuple, serializeValue } = require('./object');   // composite types
+const { PyList, PySet, PyDict, PyTuple, serializeValue, pyBool } = require('./object');   // composite types
 const { isBuiltin, callBuiltin } = require('./builtins');        // len/type/int/id/…
 const { createIdentityManager } = require('./identity');         // runtime `is` / id()
 const { parse } = require('./parser');
@@ -307,7 +307,9 @@ function makeBuilder(output, identity) {
             case 'not': {
                 if (block.value === undefined) throw new ValueError('not block requires a "value"');
                 const operand = toExpr(block.value);
-                return { evaluate: (env) => !operand.evaluate(env) };
+                // `not` DOES yield a boolean in Python, but its truthiness test
+                // is Python's — `not []` is True, which raw JS `!` gets wrong.
+                return { evaluate: (env) => !pyBool(operand.evaluate(env)) };
             }
 
             // #12: user-defined function call. functionId / paramNames are frontend
