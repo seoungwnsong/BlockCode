@@ -2877,7 +2877,7 @@ function collectBlockErrors(
 function App() {
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [result, setResult] = useState("");
-  const [zoom, setZoom] = useState(1);
+  const [zoom, setZoom] = useState(0.8);
   const [activeDropTarget, setActiveDropTarget] = useState<string | null>(null);
   const [currentDropTarget, setCurrentDropTarget] =
     useState<DropTarget | null>(null);
@@ -3644,7 +3644,7 @@ function App() {
   }
 
   function resetZoom() {
-    setZoom(1);
+    setZoom(0.8);
   }
 
   function createFunction() {
