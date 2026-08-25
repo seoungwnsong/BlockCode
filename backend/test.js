@@ -725,10 +725,10 @@ t('#28  lists nest',
       value: arr(arr(lit('int', 1), lit('int', 2)), arr(lit('int', 3))) }] },
   (r, e) => { noErr(e); eq(r.variables.grid, [[1, 2], [3]], 'grid'); });
 
-t('#28  printing a list uses Python repr, strings quoted',
+t('#28  printing a list uses Python repr, strings double-quoted',
   { blocks: [{ id: 1, type: 'print',
       value: arr(lit('int', 1), lit('string', 'a'), lit('bool', true)) }] },
-  (r, e) => { noErr(e); eq(r.output, ["[1, 'a', True]"], 'repr'); });
+  (r, e) => { noErr(e); eq(r.output, ['[1, "a", True]'], 'repr'); });
 
 t('#28  a bad element halts the list with its own error',
   { blocks: [{ id: 1, type: 'variable', name: 'z', value: arr(ref('missing')) }] },
@@ -800,11 +800,11 @@ t('#30  an empty dict prints as {}',
   { blocks: [{ id: 1, type: 'print', value: { type: 'dictionary' } }] },
   (r, e) => { noErr(e); eq(r.output, ['{}'], 'empty dict repr'); });
 
-t('#30  a dict prints Python-style with quoted string keys/values',
+t('#30  a dict prints Python-style with double-quoted string keys/values',
   { blocks: [{ id: 1, type: 'print', value: dict(
       entry(lit('string', 'name'), lit('string', 'Alex')),
       entry(lit('string', 'age'), lit('int', 20))) }] },
-  (r, e) => { noErr(e); eq(r.output, ["{'name': 'Alex', 'age': 20}"], 'dict repr'); });
+  (r, e) => { noErr(e); eq(r.output, ['{"name": "Alex", "age": 20}'], 'dict repr'); });
 
 t('#30  values may be computed expressions and variable reads',
   { blocks: [
@@ -1268,6 +1268,63 @@ t('#39  not [] is True', printBI({ type: 'not', value: { type: 'array' } }),
   (r, e) => { noErr(e); eq(r.output, ['True'], 'not empty list'); });
 t('#39  not 0 is True', printBI({ type: 'not', value: lit('int', 0) }),
   (r, e) => { noErr(e); eq(r.output, ['True'], 'not zero'); });
+
+// ===========================================================================
+// #40  Float type — integer-valued floats keep ".0", type is "float",
+//      arithmetic contaminates, and Python 3 division always yields a float.
+// ===========================================================================
+t('#40  a float literal prints with .0', printBI(lit('float', 3)),
+  (r, e) => { noErr(e); eq(r.output, ['3.0'], 'float literal'); });
+t('#40  a non-integer float prints normally', printBI(lit('float', 3.5)),
+  (r, e) => { noErr(e); eq(r.output, ['3.5'], 'float 3.5'); });
+t('#40  type(3.0) is float', printBI(bi('type', lit('float', 3))),
+  (r, e) => { noErr(e); eq(r.output, ['float'], 'type float'); });
+t('#40  type(3) is int', printBI(bi('type', lit('int', 3))),
+  (r, e) => { noErr(e); eq(r.output, ['int'], 'type int'); });
+t('#40  float(3) is 3.0', printBI(bi('float', lit('int', 3))),
+  (r, e) => { noErr(e); eq(r.output, ['3.0'], 'float()'); });
+t('#40  int(3.0) is 3', printBI(bi('int', lit('float', 3))),
+  (r, e) => { noErr(e); eq(r.output, ['3'], 'int()'); });
+t('#40  int + float is a float', printBI(calc(lit('int', 1), '+', lit('float', 2))),
+  (r, e) => { noErr(e); eq(r.output, ['3.0'], 'int+float'); });
+t('#40  float * int is a float', printBI(calc(lit('float', 2.5), '*', lit('int', 2))),
+  (r, e) => { noErr(e); eq(r.output, ['5.0'], 'float*int'); });
+t('#40  int + int stays an int', printBI(calc(lit('int', 1), '+', lit('int', 2))),
+  (r, e) => { noErr(e); eq(r.output, ['3'], 'int+int'); });
+t('#40  true division of ints is a float (4 / 2 -> 2.0)',
+  printBI(calc(lit('int', 4), '/', lit('int', 2))),
+  (r, e) => { noErr(e); eq(r.output, ['2.0'], 'true div'); });
+t('#40  1 == 1.0 is True', printBI(logic(lit('int', 1), '==', lit('float', 1))),
+  (r, e) => { noErr(e); eq(r.output, ['True'], 'cross-type eq'); });
+t('#40  2.0 < 3 is True', printBI(logic(lit('float', 2), '<', lit('int', 3))),
+  (r, e) => { noErr(e); eq(r.output, ['True'], 'cross-type order'); });
+t('#40  a float inside a list keeps .0 in the repr',
+  printBI(arr(lit('int', 1), lit('float', 2))),
+  (r, e) => { noErr(e); eq(r.output, ['[1, 2.0]'], 'list float repr'); });
+t('#40  sum of ints is an int', printBI(bi('sum', arr(lit('int', 1), lit('int', 2)))),
+  (r, e) => { noErr(e); eq(r.output, ['3'], 'sum int'); });
+t('#40  sum with a float is a float', printBI(bi('sum', arr(lit('float', 1), lit('int', 2)))),
+  (r, e) => { noErr(e); eq(r.output, ['3.0'], 'sum float'); });
+t('#40  abs(-3.0) is 3.0', printBI(bi('abs', lit('float', -3))),
+  (r, e) => { noErr(e); eq(r.output, ['3.0'], 'abs float'); });
+t('#40  round(3.14159, 2) is a float 3.14', printBI(bi('round', lit('float', 3.14159), lit('int', 2))),
+  (r, e) => { noErr(e); eq(r.output, ['3.14'], 'round float'); });
+t('#40  round(3.4) is an int', printBI(bi('round', lit('float', 3.4))),
+  (r, e) => { noErr(e); eq(r.output, ['3'], 'round int'); });
+t('#40  a float variable serializes to its number',
+  { blocks: [{ id: 1, type: 'variable', name: 'x', value: lit('float', 3) }] },
+  (r, e) => { noErr(e); eq(r.variables.x, 3, 'serialized float'); });
+t('#40  1 is 1.0 is False (distinct types)', printBI(logic(lit('int', 1), 'is', lit('float', 1))),
+  (r, e) => { noErr(e); eq(r.output, ['False'], 'is across types'); });
+
+// ===========================================================================
+// #41  String repr uses double quotes (matches the frontend pyLiteral preview)
+// ===========================================================================
+t('#41  a bare printed string has no quotes', printBI(lit('string', 'hi')),
+  (r, e) => { noErr(e); eq(r.output, ['hi'], 'bare string'); });
+t('#41  str() of a list double-quotes its strings',
+  printBI(bi('str', arr(lit('string', 'a'), lit('string', 'b')))),
+  (r, e) => { noErr(e); eq(r.output, ['["a", "b"]'], 'list str repr'); });
 
 // ===========================================================================
 console.log(`\n${pass} passed, ${fail} failed`);

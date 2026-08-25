@@ -1,6 +1,6 @@
 const { BinaryOperator, Compare } = require('./operations');
 const { num, Booleans, Strings } = require('./permitivedatatypes');
-const { pyBool } = require('./object');
+const { pyBool, PyFloat, isFloat, isNumber, numberValue } = require('./object');
 // function.js requires nothing, so this direction adds no cycle.
 const { Call } = require('./function');
 const { NameError, typeName } = require('./errors');
@@ -120,10 +120,11 @@ function parse(input) {
             // B4: -'abc' used to evaluate to NaN instead of raising.
             return { evaluate: env => {
                 const v = operand.evaluate(env);
-                if (typeof v !== 'number' && typeof v !== 'boolean') {
+                if (!isNumber(v)) {
                     throw new TypeError(`bad operand type for unary -: '${typeName(v)}'`);
                 }
-                return -v;
+                const r = -numberValue(v);
+                return isFloat(v) ? new PyFloat(r) : r;   // -(3.0) stays a float
             } };
         }
         if (peek().type === 'op' && peek().value === '+') { next(); return parseUnary(); }
@@ -136,7 +137,11 @@ function parse(input) {
     }
     function parseAtom() {
         const t = peek();
-        if (t.type === 'number') { next(); return new num(t.value); }
+        // A number with a fractional part is a float; an integer-valued token
+        // stays an int. (The tokenizer discards a written ".0", so free-form
+        // "3.0" reads as int 3 — a known limit of the text parser; the float
+        // LITERAL block carries the type explicitly and is unaffected.)
+        if (t.type === 'number') { next(); return Number.isInteger(t.value) ? new num(t.value) : { evaluate: () => new PyFloat(t.value) }; }
         if (t.type === 'string') { next(); return new Strings(t.value); }
         if (t.type === 'bool') { next(); return new Booleans(t.value); }
         if (t.type === 'ident') {

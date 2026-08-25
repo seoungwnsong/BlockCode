@@ -1,7 +1,7 @@
 ///just for testing
 const { Expr } = require('./permitivedatatypes');
 const { ZeroDivisionError, typeName } = require('./errors');
-const { PyTuple, pyBool } = require('./object');
+const { PyTuple, PyFloat, pyBool, isFloat, isNumber, numberValue } = require('./object');
 
 // Python VALUE equality, the meaning of == / != (identity `is` lives in
 // identity.js and is a different question). Scalars fall through to JS ===, so
@@ -18,6 +18,10 @@ function seqKind(v) {
 function seqItems(v) { return Array.isArray(v) ? v : v.items; }
 
 function pyEquals(a, b) {
+    // Numbers compare by VALUE across int/float/bool: 1 == 1.0, True == 1.
+    // This must run before the `a === b` reference check, since two PyFloat
+    // boxes with equal values are different objects.
+    if (isNumber(a) && isNumber(b)) return numberValue(a) === numberValue(b);
     if (a === b) return true;                 // primitives, and same reference
     const ka = seqKind(a), kb = seqKind(b);
     if (ka && kb) {
@@ -43,8 +47,9 @@ function pyEquals(a, b) {
 // B4: arithmetic on mismatched types used to fall through to JS coercion and
 // produce NaN, which then poisons every downstream calculation without ever
 // surfacing an error. Python raises TypeError instead — so do these.
-// bool counts as a number here because Python's bool subclasses int.
-const isNumeric = (v) => typeof v === 'number' || typeof v === 'boolean';
+// bool counts as a number here because Python's bool subclasses int; a boxed
+// PyFloat counts too. (isNumber lives in object.js and covers all three.)
+const isNumeric = isNumber;
 
 function requireNumeric(op, left, right) {
     if (!isNumeric(left) || !isNumeric(right)) {
@@ -53,6 +58,18 @@ function requireNumeric(op, left, right) {
         );
     }
 }
+
+// The numeric result of an arithmetic op, boxed as a float when Python would
+// produce one: whenever either operand is a float, OR the op is one that always
+// yields a float. True division (`/`) is always float in Python 3 — 4 / 2 is
+// 2.0 — so callers pass forceFloat for it.
+function numericResult(left, right, value, forceFloat = false) {
+    return (forceFloat || isFloat(left) || isFloat(right)) ? new PyFloat(value) : value;
+}
+
+// The comparable form of a value: the underlying number for any numeric, the
+// value itself otherwise (strings, sequences).
+const orderValue = (v) => (isNumber(v) ? numberValue(v) : v);
 
 // Python refuses to order a str against a number, but == and != across types
 // are legal and simply return False. Only the ordering operators are guarded.
@@ -93,7 +110,10 @@ class BinaryOperator extends Expr {
                 const leftIsStr  = isString(left);
                 const rightIsStr = isString(right);
                 if (leftIsStr && rightIsStr)   return left + right;  // string concat
-                if (!leftIsStr && !rightIsStr) return left + right;  // numeric add
+                if (!leftIsStr && !rightIsStr) {                     // numeric add
+                    requireNumeric("+", left, right);
+                    return numericResult(left, right, numberValue(left) + numberValue(right));
+                }
                 // mismatch
                 throw new TypeError(
                     `Unsupported operand types for +: '${leftIsStr ? 'str' : 'num'}' and '${rightIsStr ? 'str' : 'num'}'`
@@ -101,13 +121,17 @@ class BinaryOperator extends Expr {
             }
             case "-":
                 requireNumeric("-", left, right);
-                return left - right;
+                return numericResult(left, right, numberValue(left) - numberValue(right));
 
             case "*": {
-                // Python multiplies a str by an int to repeat it. Anything else
-                // involving a str is a TypeError.
-                const strRepeat = (s, n) =>
-                    Number.isInteger(n) ? s.repeat(Math.max(0, n)) : null;
+                // Python multiplies a str by an INT to repeat it (a bool counts,
+                // True == 1). A float multiplier is a TypeError, as is any other
+                // str combination.
+                const strRepeat = (s, count) => {
+                    if (!isNumber(count) || isFloat(count)) return null;
+                    const n = numberValue(count);
+                    return Number.isInteger(n) ? s.repeat(Math.max(0, n)) : null;
+                };
                 if (typeof left === 'string' || typeof right === 'string') {
                     const repeated = typeof left === 'string'
                         ? strRepeat(left, right)
@@ -120,37 +144,46 @@ class BinaryOperator extends Expr {
                     return repeated;
                 }
                 requireNumeric("*", left, right);
-                return left * right;
+                return numericResult(left, right, numberValue(left) * numberValue(right));
             }
 
-            case "/":
+            case "/": {
+                // Python 3 true division ALWAYS yields a float: 4 / 2 is 2.0.
                 requireNumeric("/", left, right);
-                if (right === 0) throw new ZeroDivisionError("division by zero");
-                return left / right;
+                const rv = numberValue(right);
+                if (rv === 0) {
+                    throw new ZeroDivisionError(
+                        (isFloat(left) || isFloat(right)) ? "float division by zero" : "division by zero"
+                    );
+                }
+                return numericResult(left, right, numberValue(left) / rv, true);
+            }
 
-            case "%":
-                // A2: was returning NaN, which silently poisons every
-                // downstream calculation. Match the behaviour of "/".
+            case "%": {
                 requireNumeric("%", left, right);
-                // A2: Python's exact wording is "integer modulo by zero"
-                // (mirrors "division by zero" from the "/" case above).
-                if (right === 0) throw new ZeroDivisionError("integer modulo by zero");
-                return left % right;
+                const rv = numberValue(right);
+                // A2: Python's exact wording is "integer modulo by zero".
+                if (rv === 0) throw new ZeroDivisionError("integer modulo by zero");
+                return numericResult(left, right, numberValue(left) % rv);
+            }
 
-            case "**":
+            case "**": {
                 requireNumeric("**", left, right);
-                return left ** right;
+                const rv = numberValue(right);
+                // A negative exponent produces a float even from two ints
+                // (2 ** -1 is 0.5), matching Python.
+                return numericResult(left, right, numberValue(left) ** rv, rv < 0);
+            }
 
             // == and != are valid across types in Python (they just yield False).
-            // pyEquals compares containers by value; scalars still fall through
-            // to ===, so nothing about scalar equality changes.
+            // pyEquals compares containers by value and numbers across int/float.
             case "==":  return pyEquals(left, right);
             case "!=":  return !pyEquals(left, right);
 
-            case "<":   requireOrderable("<",  left, right); return left <  right;
-            case ">":   requireOrderable(">",  left, right); return left >  right;
-            case "<=":  requireOrderable("<=", left, right); return left <= right;
-            case ">=":  requireOrderable(">=", left, right); return left >= right;
+            case "<":   requireOrderable("<",  left, right); return orderValue(left) <  orderValue(right);
+            case ">":   requireOrderable(">",  left, right); return orderValue(left) >  orderValue(right);
+            case "<=":  requireOrderable("<=", left, right); return orderValue(left) <= orderValue(right);
+            case ">=":  requireOrderable(">=", left, right); return orderValue(left) >= orderValue(right);
             default:    throw new Error(`Unknown operator: ${this.op}`);
         }
     }
@@ -171,10 +204,10 @@ class Compare extends Expr {
             const ops = {
                 "==": (a, b) => pyEquals(a, b),
                 "!=": (a, b) => !pyEquals(a, b),
-                "<":  (a, b) => a < b,
-                ">":  (a, b) => a > b,
-                "<=": (a, b) => a <= b,
-                ">=": (a, b) => a >= b,
+                "<":  (a, b) => orderValue(a) <  orderValue(b),
+                ">":  (a, b) => orderValue(a) >  orderValue(b),
+                "<=": (a, b) => orderValue(a) <= orderValue(b),
+                ">=": (a, b) => orderValue(a) >= orderValue(b),
             };
             if (!(op in ops)) throw new Error(`Unknown operator: ${op}`);
             // B4: same str-vs-number guard as BinaryOperator, so the structured

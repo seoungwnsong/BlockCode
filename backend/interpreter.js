@@ -3,7 +3,7 @@ const {
 } = require('./flowstatement');
 const { BinaryOperator, Compare, BoolOp } = require('./operations');
 const { num, Booleans, Strings } = require('./permitivedatatypes');
-const { PyList, PySet, PyDict, PyTuple, serializeValue, pyBool } = require('./object');   // composite types
+const { PyList, PySet, PyDict, PyTuple, PyFloat, serializeValue, pyBool } = require('./object');   // composite types
 const { isBuiltin, callBuiltin } = require('./builtins');        // len/type/int/id/…
 const { createIdentityManager } = require('./identity');         // runtime `is` / id()
 const { parse } = require('./parser');
@@ -110,12 +110,18 @@ function validateReference(name) {
 // Accepts both the frontend's "string" and the older backend "str".
 function literalExpr(dataType, value) {
     switch (dataType) {
-        case 'int':
-        case 'float': {
+        case 'int': {
             const n = Number(value);
             // B4: Python's int('abc') raises ValueError, not a bare Error.
             if (Number.isNaN(n)) throw new ValueError(`Invalid ${dataType} literal: ${value}`);
             return new num(n);
+        }
+        // A float literal is boxed so its type survives even when the value is
+        // integral (3.0), which a bare JS number could not preserve.
+        case 'float': {
+            const n = Number(value);
+            if (Number.isNaN(n)) throw new ValueError(`Invalid ${dataType} literal: ${value}`);
+            return { evaluate: () => new PyFloat(n) };
         }
         case 'bool':
             return new Booleans(value === true || value === 'true');

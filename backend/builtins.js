@@ -19,7 +19,8 @@
 
 const { typeName, ValueError, KeyError, IndexError } = require('./errors');
 const {
-    PyTuple, lengthOf, iterate, pyBool, pyStr, pyRepr, isMutable,
+    PyTuple, PyFloat, lengthOf, iterate, pyBool, pyStr, pyRepr, isMutable,
+    isFloat, isNumber, numberValue,
 } = require('./object');
 const { pyEquals } = require('./operations');
 
@@ -33,7 +34,7 @@ const { pyEquals } = require('./operations');
 // which is why max([20, 10], [10, 100]) is [20, 10]. If every shared position is
 // equal, the shorter sequence is the smaller one ([1, 2] < [1, 2, 3]).
 
-const isNum = (v) => typeof v === 'number' || typeof v === 'boolean';
+const isNum = isNumber;   // number | bool | PyFloat (from object.js)
 
 // The array of elements for a sequence, tagged by kind — a list and a tuple are
 // each orderable with their own kind but NOT with each other, exactly as Python
@@ -46,7 +47,7 @@ function sequence(value) {
 
 function pyCompare(a, b) {
     if (isNum(a) && isNum(b)) {
-        const x = Number(a), y = Number(b);
+        const x = numberValue(a), y = numberValue(b);
         return x < y ? -1 : x > y ? 1 : 0;
     }
     if (typeof a === 'string' && typeof b === 'string') {
@@ -91,6 +92,7 @@ function between(name, args, lo, hi) {
 // Python's int('3.5'); only a numeric float VALUE is truncated.
 function toInt(x) {
     if (typeof x === 'boolean') return x ? 1 : 0;
+    if (isFloat(x))             return Math.trunc(x.value);
     if (typeof x === 'number')  return Math.trunc(x);
     if (typeof x === 'string') {
         const s = x.trim();
@@ -106,15 +108,17 @@ function toInt(x) {
 // (JS has one number type, so float(3) cannot be told apart from int 3 — a known
 // limitation noted where lists print.)
 function toFloat(x) {
-    if (typeof x === 'boolean') return x ? 1 : 0;
-    if (typeof x === 'number')  return x;
+    // float() ALWAYS produces a boxed float, so float(3) is 3.0, not 3.
+    if (typeof x === 'boolean') return new PyFloat(x ? 1 : 0);
+    if (isFloat(x))             return x;
+    if (typeof x === 'number')  return new PyFloat(x);
     if (typeof x === 'string') {
         const s = x.trim();
         const n = Number(s);
         if (s === '' || Number.isNaN(n)) {
             throw new ValueError(`could not convert string to float: '${x}'`);
         }
-        return n;
+        return new PyFloat(n);
     }
     throw new TypeError(`float() argument must be a string or a number, not '${typeName(x)}'`);
 }
@@ -166,7 +170,7 @@ function lengthOfSafe(v) {
 
 function requireNumber(name, x) {
     if (!isNum(x)) throw new TypeError(`bad operand type for ${name}(): '${typeName(x)}'`);
-    return Number(x);
+    return numberValue(x);
 }
 
 // Python's round: round-half-to-EVEN (round(0.5) == 0, round(2.5) == 2). With no
@@ -277,18 +281,25 @@ const BUILTINS = {
     set:   (a) => { exactly('set', a, 1);   return toSet(a[0]); },
     dict:  (a) => { exactly('dict', a, 1);  return toDict(a[0]); },
 
-    // numeric
-    abs:   (a) => { exactly('abs', a, 1); return Math.abs(requireNumber('abs', a[0])); },
+    // numeric — abs preserves the argument's type (abs(-3) -> 3, abs(-3.0) -> 3.0)
+    abs:   (a) => {
+        exactly('abs', a, 1);
+        const r = Math.abs(requireNumber('abs', a[0]));
+        return isFloat(a[0]) ? new PyFloat(r) : r;
+    },
     round: (a) => {
         between('round', a, 1, 2);
         const x = requireNumber('round', a[0]);
+        // round(x) with no ndigits returns an INT; round(x, n) keeps the
+        // argument's type (round(3.14159, 2) -> 3.14 float, round(3, 2) -> 3 int).
         if (a.length === 1) return roundHalfEven(x);
-        const nd = a[1];
-        if (!Number.isInteger(nd)) {
-            throw new TypeError(`'${typeName(nd)}' object cannot be interpreted as an integer`);
+        const nd = numberValue(a[1]);
+        if (!Number.isInteger(nd) || isFloat(a[1])) {
+            throw new TypeError(`'${typeName(a[1])}' object cannot be interpreted as an integer`);
         }
         const f = 10 ** nd;
-        return roundHalfEven(x * f) / f;
+        const val = roundHalfEven(x * f) / f;
+        return isFloat(a[0]) ? new PyFloat(val) : val;
     },
 
     // aggregate
@@ -297,13 +308,16 @@ const BUILTINS = {
     sum: (a) => {
         exactly('sum', a, 1);
         let total = 0;
+        let anyFloat = false;
         for (const v of iterate(a[0])) {
             if (!isNum(v)) {
                 throw new TypeError(`unsupported operand type(s) for +: 'int' and '${typeName(v)}'`);
             }
-            total += Number(v);
+            total += numberValue(v);
+            if (isFloat(v)) anyFloat = true;
         }
-        return total;
+        // sum([1, 2]) -> 3 (int); sum([1.0, 2]) -> 3.0 (float).
+        return anyFloat ? new PyFloat(total) : total;
     },
     sorted: (a) => {
         exactly('sorted', a, 1);

@@ -45,6 +45,45 @@ class PyTuple {
     toString() { return pyRepr(this); }
 }
 
+// A Python float. JS has one number type, so an integer-valued float (3.0)
+// cannot be told apart from an int (3) when both are stored as a bare JS number.
+// PyFloat is the box that keeps that distinction: an int stays a bare JS number,
+// a float is wrapped here. That is what lets `3.0` print as "3.0", `type(3.0)`
+// report "float", and Python 3 true division (`4 / 2` -> 2.0) carry a float
+// result. Like PyTuple it is a runtime VALUE (already evaluated), tagged by a
+// prototype getter so errors.js can name it without an instanceof import cycle.
+//
+// KNOWN LIMITATION: a float is a boxed object, and a JS Set/Map (which back this
+// language's set and dict) key objects by REFERENCE. So two equal floats do NOT
+// collapse inside a set/dict — {2.0, 2.0} stays two members, and 2 vs 2.0 never
+// merge — whereas Python would dedupe them by value. Ints/strings/bools are
+// primitives and still dedupe correctly; only floats-as-members are affected.
+class PyFloat {
+    constructor(value = 0) {
+        this.value = Number(value);
+    }
+    get isPyFloat() { return true; }
+    toString() { return pyNumberStr(this.value); }
+}
+
+// Render a numeric value the way Python (and the frontend's pyLiteral) does:
+// an integer-valued float keeps a trailing ".0" so it stays visibly a float.
+function pyNumberStr(value) {
+    return Number.isInteger(value) ? `${value}.0` : String(value);
+}
+
+// A value that participates in arithmetic: a bare number (int), a bool (Python's
+// bool is an int subclass, True == 1) or a boxed PyFloat.
+const isFloat  = (v) => v instanceof PyFloat;
+const isNumber = (v) => typeof v === 'number' || typeof v === 'boolean' || v instanceof PyFloat;
+// The underlying JS number for arithmetic/comparison, unboxing a PyFloat and
+// mapping bool -> 0/1.
+function numberValue(v) {
+    if (v instanceof PyFloat) return v.value;
+    if (typeof v === 'boolean') return v ? 1 : 0;
+    return v;
+}
+
 // A Python list. `items` is an array of Expr nodes; evaluating the list
 // evaluates each element against the current env and returns a plain JS array.
 class PyList extends Expr {
@@ -142,6 +181,7 @@ function iterate(value) {
 function pyBool(value) {
     if (typeof value === 'boolean') return value;
     if (typeof value === 'number')  return value !== 0;
+    if (value instanceof PyFloat)   return value.value !== 0;
     if (typeof value === 'string')  return value.length > 0;
     if (value === null || value === undefined) return false;
     if (Array.isArray(value))       return value.length > 0;
@@ -160,8 +200,12 @@ function pyBool(value) {
 // is set(), since {} is the empty dict), a dict {k: v, ..}. Elements and both
 // halves of a dict entry use repr, so nested strings stay quoted.
 function pyRepr(value) {
-    if (typeof value === 'string') return `'${value}'`;
+    // Strings render double-quoted, matching the frontend's JSON.stringify-based
+    // pyLiteral (Python's own repr prefers single quotes; the editor's preview
+    // is the chosen convention here). JSON.stringify also escapes correctly.
+    if (typeof value === 'string') return JSON.stringify(value);
     if (typeof value === 'boolean') return value ? 'True' : 'False';
+    if (value instanceof PyFloat) return pyNumberStr(value.value);
     if (value === null || value === undefined) return 'None';
     if (Array.isArray(value)) return `[${value.map(pyRepr).join(', ')}]`;
     if (value instanceof PyTuple) {
@@ -183,6 +227,7 @@ function pyRepr(value) {
 // the same either way: their contents always use repr.
 function pyStr(value) {
     if (typeof value === 'boolean') return value ? 'True' : 'False';
+    if (value instanceof PyFloat) return pyNumberStr(value.value);
     if (value === null || value === undefined) return 'None';
     if (Array.isArray(value) || value instanceof PyTuple ||
         value instanceof Set || value instanceof Map) {
@@ -197,6 +242,9 @@ function pyStr(value) {
 // pyStr(key) (string keys are the common case; a non-string key is stringified
 // the way print would show it). Scalars and lists pass through unchanged.
 function serializeValue(value) {
+    // A float carries no distinct JSON form, so it unwraps to its number; the
+    // printed `output` (via pyStr) is where the ".0" distinction is preserved.
+    if (value instanceof PyFloat) return value.value;
     if (Array.isArray(value))     return value.map(serializeValue);
     if (value instanceof PyTuple) return value.items.map(serializeValue);
     if (value instanceof Set)     return [...value].map(serializeValue);
@@ -209,7 +257,8 @@ function serializeValue(value) {
 }
 
 module.exports = {
-    PyList, PySet, PyDict, PyTuple,
-    pyRepr, pyStr, serializeValue, isMutable,
+    PyList, PySet, PyDict, PyTuple, PyFloat,
+    pyRepr, pyStr, pyNumberStr, serializeValue, isMutable,
     lengthOf, iterate, pyBool,
+    isFloat, isNumber, numberValue,
 };
