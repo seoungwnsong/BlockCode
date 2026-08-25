@@ -3884,3 +3884,8 @@ textarea {
   border-radius: 0 0 2px 2px;
 }
 
+.python-code-preview {
+  text-align: left;
+  white-space: pre;
+}
+
