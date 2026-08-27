@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { DragEvent } from "react";
+import type { CSSProperties, DragEvent, ReactNode } from "react";
 import "./App.css";
 import blockCodeLogo from "./assets/blockcode-logo.png";
 
@@ -268,16 +268,6 @@ type UserFunction = {
 };
 
 type BlockType = Exclude<Block["type"], "builtinCall">;
-
-type BlockCategory = "basics" | "expressions" | "data" | "flow" | "functions";
-
-const BLOCK_CATEGORIES: { id: BlockCategory; label: string; title: string }[] = [
-  { id: "basics", label: "Basic", title: "Basic blocks" },
-  { id: "expressions", label: "Expr", title: "Expressions" },
-  { id: "data", label: "Data", title: "Data structures" },
-  { id: "flow", label: "Flow", title: "Control flow" },
-  { id: "functions", label: "Functions", title: "User functions" },
-];
 
 type BuiltinDefinition = {
   name: BuiltinFunctionName;
@@ -2893,11 +2883,7 @@ function App() {
     null
   );
   const [openFunctionTabIds, setOpenFunctionTabIds] = useState<number[]>([]);
-  const [activeBlockCategory, setActiveBlockCategory] =
-    useState<BlockCategory>("basics");
-  const [builtinSidebarView, setBuiltinSidebarView] = useState<
-    "builtins" | "methods"
-  >("builtins");
+  const [activeCategory, setActiveCategory] = useState<string | null>(null);
 
   const editingFunction =
     editingFunctionId === null
@@ -5005,6 +4991,200 @@ function App() {
     );
   }
 
+  const toolboxCategories: {
+    id: string;
+    label: string;
+    color: string;
+    layout: "stack" | "grid";
+    content: ReactNode;
+  }[] = [
+    {
+      id: "basics",
+      label: "Basic",
+      color: "var(--blue-block)",
+      layout: "stack",
+      content: (
+        <>
+          {renderPaletteBlock("variable", "variable", "variable-template")}
+          {renderPaletteBlock("print", "print", "print-template")}
+          {renderPaletteBlock("return", "return", "return-template")}
+        </>
+      ),
+    },
+    {
+      id: "expressions",
+      label: "Expressions",
+      color: "var(--purple-block)",
+      layout: "stack",
+      content: (
+        <>
+          {renderPaletteBlock("calculation", "calculation", "calculation-template")}
+          {renderPaletteBlock("logic", "logic", "logic-template")}
+        </>
+      ),
+    },
+    {
+      id: "data",
+      label: "Data",
+      color: "var(--mint-block)",
+      layout: "stack",
+      content: (
+        <>
+          {renderPaletteBlock("array / list", "array", "array-template")}
+          {renderPaletteBlock("set", "set", "set-template")}
+          {renderPaletteBlock("dictionary", "dictionary", "dictionary-template")}
+        </>
+      ),
+    },
+    {
+      id: "flow",
+      label: "Flow",
+      color: "var(--yellow-block)",
+      layout: "stack",
+      content: (
+        <>
+          {renderPaletteBlock("if", "if", "control-template")}
+          {renderPaletteBlock("try/catch", "tryCatch", "try-template")}
+          {renderPaletteBlock("for", "for", "control-template")}
+          {renderPaletteBlock("while", "while", "control-template")}
+        </>
+      ),
+    },
+    {
+      id: "functions",
+      label: "Functions",
+      color: "#d8b4fe",
+      layout: "stack",
+      content: (
+        <>
+          <button className="create-function-button" onClick={createFunction}>
+            + Create Function
+          </button>
+
+          {functions.map((func) => (
+            <div
+              key={func.id}
+              className={`function-library-item ${
+                openFunctionMenuId === func.id ? "menu-open" : ""
+              }`}
+            >
+              <div
+                className="template-block function-template function-library-block"
+                draggable
+                onDragStart={(event) => {
+                  event.dataTransfer.setData("source", "function");
+                  event.dataTransfer.setData("functionId", String(func.id));
+                  event.dataTransfer.effectAllowed = "copy";
+                }}
+                onDragEnd={handleDragEnd}
+                onClick={() => addFunctionCall(func)}
+              >
+                <span className="function-block-name">{func.name}</span>
+
+                <button
+                  className="function-more-button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+
+                    setOpenFunctionMenuId((previous) =>
+                      previous === func.id ? null : func.id
+                    );
+                  }}
+                  title="Function options"
+                >
+                  ⋯
+                </button>
+
+                {openFunctionMenuId === func.id && (
+                  <div
+                    className="function-menu"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <button
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        openFunctionTab(func.id);
+                      }}
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M4 20H8L18.5 9.5L14.5 5.5L4 16V20Z" />
+                        <path d="M13.5 6.5L17.5 10.5" />
+                      </svg>
+
+                      <span>Edit</span>
+                    </button>
+
+                    <button
+                      className="danger-menu-item"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        requestDeleteFunction(func.id);
+                      }}
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M5 7H19" />
+                        <path d="M10 11V17" />
+                        <path d="M14 11V17" />
+                        <path d="M8 7L9 4H15L16 7" />
+                        <path d="M7 7L8 20H16L17 7" />
+                      </svg>
+
+                      <span>Delete</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+        </>
+      ),
+    },
+    {
+      id: "builtins",
+      label: "Built-ins",
+      color: "var(--brand-blue)",
+      layout: "stack",
+      content: (
+        <>
+          {BUILTIN_GROUPS.map((group) => (
+            <section
+              className={`builtin-group builtin-group-${group.id}`}
+              key={group.id}
+            >
+              <h2>{group.title}</h2>
+              <div className="builtin-list">
+                {group.functions.map((definition) =>
+                  renderBuiltinBlock(definition, group.id)
+                )}
+              </div>
+            </section>
+          ))}
+        </>
+      ),
+    },
+    ...METHOD_GROUPS.map((group) => ({
+      id: group.id,
+      label: group.title,
+      color: `var(--brand-${
+        group.id === "list"
+          ? "peach"
+          : group.id === "string"
+            ? "green"
+            : group.id === "dict"
+              ? "lavender"
+              : "teal"
+      })`,
+      layout: "grid" as const,
+      content: (
+        <>
+          {group.functions.map((definition) =>
+            renderBuiltinBlock(definition, group.id)
+          )}
+        </>
+      ),
+    })),
+  ];
+
   return (
     <div className="app" onClick={() => setOpenFunctionMenuId(null)}>
       <header className="app-topbar app-font">
@@ -5036,251 +5216,61 @@ function App() {
         </div>
       </header>
 
-      <aside className="function-sidebar builtin-sidebar app-font">
+      <aside className="function-sidebar toolbox-sidebar app-font">
         <div className="sidebar-header">
-          <h1>{builtinSidebarView === "builtins" ? "Built-ins" : "Methods"}</h1>
+          <h1>Toolbox</h1>
         </div>
 
-        <div
-          className="block-category-tabs builtin-sidebar-tabs"
-          role="tablist"
-          aria-label="Built-in library view"
-        >
-          <button
-            type="button"
-            role="tab"
-            aria-selected={builtinSidebarView === "builtins"}
-            className={`block-category-tab ${
-              builtinSidebarView === "builtins"
-                ? "active-block-category-tab"
-                : ""
-            }`}
-            title="Global built-in functions"
-            onClick={() => setBuiltinSidebarView("builtins")}
-          >
-            Built-ins
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={builtinSidebarView === "methods"}
-            className={`block-category-tab ${
-              builtinSidebarView === "methods"
-                ? "active-block-category-tab"
-                : ""
-            }`}
-            title="Data structure methods"
-            onClick={() => setBuiltinSidebarView("methods")}
-          >
-            Methods
-          </button>
-        </div>
+        <div className="toolbox-accordion">
+          {toolboxCategories.map((category) => {
+            const isExpanded = activeCategory === category.id;
 
-        <div className="builtin-groups">
-          {(builtinSidebarView === "builtins"
-            ? BUILTIN_GROUPS
-            : METHOD_GROUPS
-          ).map((group) => (
-            <section
-              className={`builtin-group builtin-group-${group.id}`}
-              key={group.id}
-            >
-              <h2>{group.title}</h2>
-              <div className="builtin-list">
-                {group.functions.map((definition) =>
-                  renderBuiltinBlock(definition, group.id)
-                )}
-              </div>
-            </section>
-          ))}
-        </div>
-      </aside>
-
-      <aside className="block-menu app-font">
-        <div className="sidebar-header">
-          <h1>Blocks</h1>
-        </div>
-
-        <div
-          className="block-category-tabs"
-          role="tablist"
-          aria-label="Block categories"
-        >
-          {BLOCK_CATEGORIES.map((category) => (
-            <button
-              key={category.id}
-              type="button"
-              role="tab"
-              aria-selected={activeBlockCategory === category.id}
-              className={`block-category-tab ${
-                activeBlockCategory === category.id
-                  ? "active-block-category-tab"
-                  : ""
-              }`}
-              title={category.title}
-              onClick={() => setActiveBlockCategory(category.id)}
-            >
-              {category.label}
-            </button>
-          ))}
-        </div>
-
-        <div className="block-category-panel">
-          {activeBlockCategory === "basics" && (
-            <section className="block-section active-block-section">
-              <div className="block-section-heading">
-                <h3>Start Here</h3>
-              </div>
-              {renderPaletteBlock("variable", "variable", "variable-template")}
-              {renderPaletteBlock("print", "print", "print-template")}
-              {renderPaletteBlock("return", "return", "return-template")}
-            </section>
-          )}
-
-          {activeBlockCategory === "expressions" && (
-            <section className="block-section active-block-section">
-              <div className="block-section-heading">
-                <h3>Expressions</h3>
-              </div>
-              {renderPaletteBlock(
-                "calculation",
-                "calculation",
-                "calculation-template"
-              )}
-              {renderPaletteBlock("logic", "logic", "logic-template")}
-            </section>
-          )}
-
-          {activeBlockCategory === "data" && (
-            <section className="block-section active-block-section">
-              <div className="block-section-heading">
-                <h3>Python Data</h3>
-              </div>
-              {renderPaletteBlock("array / list", "array", "array-template")}
-              {renderPaletteBlock("set", "set", "set-template")}
-              {renderPaletteBlock(
-                "dictionary",
-                "dictionary",
-                "dictionary-template"
-              )}
-            </section>
-          )}
-
-          {activeBlockCategory === "flow" && (
-            <section className="block-section active-block-section">
-              <div className="block-section-heading">
-                <h3>Control Flow</h3>
-              </div>
-              {renderPaletteBlock("if", "if", "control-template")}
-              {renderPaletteBlock("try/catch", "tryCatch", "try-template")}
-              {renderPaletteBlock("for", "for", "control-template")}
-              {renderPaletteBlock("while", "while", "control-template")}
-            </section>
-          )}
-
-          {activeBlockCategory === "functions" && (
-            <section className="block-section active-block-section">
-              <div className="block-section-heading">
-                <h3>Functions</h3>
-              </div>
-
-              <button
-                className="create-function-button"
-                onClick={createFunction}
+            return (
+              <div
+                key={category.id}
+                className={`toolbox-category ${
+                  isExpanded ? "toolbox-category-active" : ""
+                }`}
               >
-                + Create Function
-              </button>
+                <button
+                  type="button"
+                  className="toolbox-category-row"
+                  style={
+                    { "--category-color": category.color } as CSSProperties
+                  }
+                  aria-expanded={isExpanded}
+                  onClick={() =>
+                    setActiveCategory((previous) =>
+                      previous === category.id ? null : category.id
+                    )
+                  }
+                >
+                  <span className="toolbox-category-bar" />
+                  <span className="toolbox-category-label">
+                    {category.label}
+                  </span>
+                </button>
 
-              {functions.map((func) => (
                 <div
-                  key={func.id}
-                  className={`function-library-item ${
-                    openFunctionMenuId === func.id ? "menu-open" : ""
+                  className={`toolbox-category-content ${
+                    isExpanded ? "toolbox-category-expanded" : ""
                   }`}
                 >
-                  <div
-                    className="template-block function-template function-library-block"
-                    draggable
-                    onDragStart={(event) => {
-                      event.dataTransfer.setData("source", "function");
-                      event.dataTransfer.setData(
-                        "functionId",
-                        String(func.id)
-                      );
-                      event.dataTransfer.effectAllowed = "copy";
-                    }}
-                    onDragEnd={handleDragEnd}
-                    onClick={() => addFunctionCall(func)}
-                  >
-                    <span className="function-block-name">
-                      {func.name}
-                    </span>
-
-                    <button
-                      className="function-more-button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-
-                        setOpenFunctionMenuId((previous) =>
-                          previous === func.id ? null : func.id
-                        );
-                      }}
-                      title="Function options"
+                  <div className="toolbox-category-content-inner">
+                    <div
+                      className={
+                        category.layout === "grid"
+                          ? "toolbox-category-body builtin-list"
+                          : "toolbox-category-body toolbox-stack"
+                      }
                     >
-                      ⋯
-                    </button>
-
-                    {openFunctionMenuId === func.id && (
-                      <div
-                        className="function-menu"
-                        onClick={(event) =>
-                          event.stopPropagation()
-                        }
-                      >
-                        <button
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            openFunctionTab(func.id);
-                          }}
-                        >
-                          <svg
-                            viewBox="0 0 24 24"
-                            aria-hidden="true"
-                          >
-                            <path d="M4 20H8L18.5 9.5L14.5 5.5L4 16V20Z" />
-                            <path d="M13.5 6.5L17.5 10.5" />
-                          </svg>
-
-                          <span>Edit</span>
-                        </button>
-
-                        <button
-                          className="danger-menu-item"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            requestDeleteFunction(func.id);
-                          }}
-                        >
-                          <svg
-                            viewBox="0 0 24 24"
-                            aria-hidden="true"
-                          >
-                            <path d="M5 7H19" />
-                            <path d="M10 11V17" />
-                            <path d="M14 11V17" />
-                            <path d="M8 7L9 4H15L16 7" />
-                            <path d="M7 7L8 20H16L17 7" />
-                          </svg>
-
-                          <span>Delete</span>
-                        </button>
-                      </div>
-                    )}
+                      {category.content}
+                    </div>
                   </div>
                 </div>
-              ))}
-            </section>
-          )}
+              </div>
+            );
+          })}
         </div>
       </aside>
 
