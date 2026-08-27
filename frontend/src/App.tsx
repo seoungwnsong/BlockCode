@@ -5025,7 +5025,7 @@ function App() {
     },
     {
       id: "data",
-      label: "Data",
+      label: "Data Structures",
       color: "var(--mint-block)",
       layout: "stack",
       content: (
@@ -5038,7 +5038,7 @@ function App() {
     },
     {
       id: "flow",
-      label: "Flow",
+      label: "Flow Controls",
       color: "var(--yellow-block)",
       layout: "stack",
       content: (
@@ -5164,7 +5164,7 @@ function App() {
     },
     ...METHOD_GROUPS.map((group) => ({
       id: group.id,
-      label: group.title,
+      label: `${group.title} Methods`,
       color: `var(--brand-${
         group.id === "list"
           ? "peach"
@@ -5407,7 +5407,7 @@ function App() {
 
         {result && <pre className="result-message">{result}</pre>}
 
-        <h3>Python</h3>
+        <h3>Python Preview</h3>
         <pre className="python-code-preview">{buildPythonSource(functions, blocks)}</pre>
       </aside>
 
