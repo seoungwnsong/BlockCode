@@ -328,19 +328,16 @@ t('A2  normal modulo still works',
   (r, e) => { noErr(e); eq(r.variables.x, 1, '7 % 3'); });
 
 // ===========================================================================
-// A3  catch variable is displayable
+// A3  a typed catch matches its own error, not a generic one listed first
 // ===========================================================================
-t('A3  catch variable holds a readable message, not {}',
-  { blocks: [{ id: 1, type: 'tryCatch', catchErrorName: 'error',
+t('A3  ZeroDivisionError is caught by its own clause, not a NameError clause ahead of it',
+  { blocks: [{ id: 1, type: 'tryCatch',
       tryChildren: [{ id: 2, type: 'variable', name: 'z', value: calc(lit('int', 1), '/', lit('int', 0)) }],
-      catchChildren: [{ id: 3, type: 'print', value: ref('error') }] }] },
-  (r, e) => {
-      noErr(e);
-      // Python's exact wording, lowercase, for `1 / 0`.
-      eq(r.output, ['division by zero'], 'printed message');
-      eq(r.variables.error, 'division by zero', 'bound value');
-      eq(JSON.parse(JSON.stringify(r.variables)).error, 'division by zero', 'survives JSON');
-  });
+      catches: [
+          { id: 10, errorType: 'NameError', children: [{ id: 3, type: 'print', value: lit('string', 'name') }] },
+          { id: 11, errorType: 'ZeroDivisionError', children: [{ id: 4, type: 'print', value: lit('string', 'zero') }] },
+      ] }] },
+  (r, e) => { noErr(e); eq(r.output, ['zero'], 'printed message'); });
 
 // ===========================================================================
 // #22 / #23  chained calculation and comparison expressions
@@ -1325,6 +1322,57 @@ t('#41  a bare printed string has no quotes', printBI(lit('string', 'hi')),
 t('#41  str() of a list double-quotes its strings',
   printBI(bi('str', arr(lit('string', 'a'), lit('string', 'b')))),
   (r, e) => { noErr(e); eq(r.output, ['["a", "b"]'], 'list str repr'); });
+
+// ===========================================================================
+// #42  tryCatch: multiple typed catch branches
+// ===========================================================================
+const tacCatches = (tryChildren, catches) =>
+  ({ blocks: [{ id: 1, type: 'tryCatch', tryChildren, catches }] });
+
+t('#42  first matching catch runs; later ones (even Exception) are skipped',
+  tacCatches(
+      [{ id: 2, type: 'variable', name: 'z', value: calc(lit('int', 10), '/', lit('int', 0)) }],
+      [
+          { id: 10, errorType: 'TypeError', children: [{ id: 3, type: 'print', value: lit('string', 'type') }] },
+          { id: 11, errorType: 'ZeroDivisionError', children: [{ id: 4, type: 'print', value: lit('string', 'zero') }] },
+          { id: 12, errorType: 'Exception', children: [{ id: 5, type: 'print', value: lit('string', 'other') }] },
+      ]
+  ),
+  (r, e) => { noErr(e); eq(r.output, ['zero'], 'only the ZeroDivisionError branch runs'); });
+
+t('#42  an unmatched specific error still reaches a trailing Exception branch',
+  tacCatches(
+      [{ id: 2, type: 'variable', name: 'z', value: calc(lit('int', 10), '/', lit('int', 0)) }],
+      [
+          { id: 10, errorType: 'NameError', children: [{ id: 3, type: 'print', value: lit('string', 'name') }] },
+          { id: 11, errorType: 'Exception', children: [{ id: 4, type: 'print', value: lit('string', 'other') }] },
+      ]
+  ),
+  (r, e) => { noErr(e); eq(r.output, ['other'], 'falls through to Exception'); });
+
+t('#42  no catch runs when the try body succeeds',
+  tacCatches(
+      [{ id: 2, type: 'variable', name: 'z', value: calc(lit('int', 10), '/', lit('int', 2)) }],
+      [{ id: 10, errorType: 'Exception', children: [{ id: 3, type: 'print', value: lit('string', 'unreached') }] }]
+  ),
+  (r, e) => { noErr(e); eq(r.output, [], 'no output'); eq(r.variables.z, 5, 'z'); });
+
+t('#42  an error with no matching catch propagates (Python behavior)',
+  tacCatches(
+      [{ id: 2, type: 'variable', name: 'z', value: calc(lit('int', 10), '/', lit('int', 0)) }],
+      [{ id: 10, errorType: 'TypeError', children: [{ id: 3, type: 'print', value: lit('string', 'type') }] }]
+  ),
+  (r, e) => {
+      if (!e.length || e[0].errorType !== 'ZeroDivisionError') {
+          throw new Error('expected an uncaught ZeroDivisionError to propagate');
+      }
+  });
+
+t('#42  old single-catch payloads (no `catches` array) still behave as a catch-all',
+  { blocks: [{ id: 1, type: 'tryCatch', catchErrorName: 'error',
+      tryChildren: [{ id: 2, type: 'variable', name: 'z', value: calc(lit('int', 1), '/', lit('int', 0)) }],
+      catchChildren: [{ id: 3, type: 'print', value: lit('string', 'caught') }] }] },
+  (r, e) => { noErr(e); eq(r.output, ['caught'], 'legacy shape still matches anything'); });
 
 // ===========================================================================
 console.log(`\n${pass} passed, ${fail} failed`);

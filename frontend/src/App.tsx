@@ -211,6 +211,44 @@ type IfBlock = {
   elseChildren: Block[] | null;
 };
 
+type PythonErrorType =
+  | "Exception"
+  | "TypeError"
+  | "ValueError"
+  | "NameError"
+  | "ZeroDivisionError"
+  | "IndexError"
+  | "KeyError"
+  | "AttributeError"
+  | "FileNotFoundError"
+  | "AssertionError";
+
+const ERROR_TYPES: { value: PythonErrorType; label: string }[] = [
+  { value: "Exception", label: "Any Error" },
+  { value: "TypeError", label: "Type Error" },
+  { value: "ValueError", label: "Value Error" },
+  { value: "NameError", label: "Name Error" },
+  { value: "ZeroDivisionError", label: "Zero Division Error" },
+  { value: "IndexError", label: "Index Error" },
+  { value: "KeyError", label: "Key Error" },
+  { value: "AttributeError", label: "Attribute Error" },
+  { value: "FileNotFoundError", label: "File Not Found Error" },
+  { value: "AssertionError", label: "Assertion Error" },
+];
+
+type CatchBranch = {
+  id: number;
+  errorType: PythonErrorType;
+  children: Block[];
+};
+
+type TryCatchBlock = {
+  id: number;
+  type: "tryCatch";
+  tryChildren: Block[];
+  catches: CatchBranch[];
+};
+
 type ParallelAssignmentBlock = {
   id: number;
   type: "parallelAssign";
@@ -252,13 +290,7 @@ type Block =
       end: Expression;
       children: Block[];
     }
-  | {
-      id: number;
-      type: "tryCatch";
-      catchErrorName: string;
-      tryChildren: Block[];
-      catchChildren: Block[];
-    };
+  | TryCatchBlock;
 
 type UserFunction = {
   id: number;
@@ -464,6 +496,7 @@ type ListDropTarget =
   | {
       area: "catchChildren";
       parentId: number;
+      branchId: number;
       index: number;
     };
 
@@ -561,6 +594,12 @@ type JsonElifBranch = {
   children: JsonBlock[];
 };
 
+type JsonCatchBranch = {
+  id: number;
+  errorType: PythonErrorType;
+  children: JsonBlock[];
+};
+
 type JsonBlock =
   | {
       id: number;
@@ -624,9 +663,8 @@ type JsonBlock =
   | {
       id: number;
       type: "tryCatch";
-      catchErrorName: string;
       tryChildren: JsonBlock[];
-      catchChildren: JsonBlock[];
+      catches: JsonCatchBranch[];
     };
 
 let idCounter = 0;
@@ -975,9 +1013,8 @@ function createBlock(type: BlockType): Block {
       return {
         id,
         type: "tryCatch",
-        catchErrorName: "error",
         tryChildren: [],
-        catchChildren: [],
+        catches: [{ id: makeId(), errorType: "Exception", children: [] }],
       };
 
     case "call":
@@ -1289,11 +1326,17 @@ function findExpressionInBlock(block: Block, id: number): Expression | null {
       return findExpressionInBlocks(block.children, id);
     }
 
-    case "tryCatch":
-      return (
-        findExpressionInBlocks(block.tryChildren, id) ??
-        findExpressionInBlocks(block.catchChildren, id)
-      );
+    case "tryCatch": {
+      const inTry = findExpressionInBlocks(block.tryChildren, id);
+      if (inTry) return inTry;
+
+      for (const branch of block.catches) {
+        const inBranch = findExpressionInBlocks(branch.children, id);
+        if (inBranch) return inBranch;
+      }
+
+      return null;
+    }
 
     default:
       return null;
@@ -1388,11 +1431,10 @@ function updateExpressionsInBlock(
           id,
           updater
         ),
-        catchChildren: updateExpressionsInBlocks(
-          block.catchChildren,
-          id,
-          updater
-        ),
+        catches: block.catches.map((branch) => ({
+          ...branch,
+          children: updateExpressionsInBlocks(branch.children, id, updater),
+        })),
       };
   }
 }
@@ -1432,7 +1474,9 @@ function blockContainsBlockId(block: Block, id: number): boolean {
   if (block.type === "tryCatch") {
     return (
       block.tryChildren.some((child) => blockContainsBlockId(child, id)) ||
-      block.catchChildren.some((child) => blockContainsBlockId(child, id))
+      block.catches.some((branch) =>
+        branch.children.some((child) => blockContainsBlockId(child, id))
+      )
     );
   }
 
@@ -1492,9 +1536,15 @@ function insertIntoBlocks(
       }
 
       if (target.area === "catchChildren" && block.type === "tryCatch") {
-        const catchChildren = [...block.catchChildren];
-        catchChildren.splice(target.index, 0, newBlock);
-        return { ...block, catchChildren };
+        return {
+          ...block,
+          catches: block.catches.map((branch) => {
+            if (branch.id !== target.branchId) return branch;
+            const children = [...branch.children];
+            children.splice(target.index, 0, newBlock);
+            return { ...branch, children };
+          }),
+        };
       }
     }
 
@@ -1524,11 +1574,10 @@ function insertIntoBlocks(
       return {
         ...block,
         tryChildren: insertIntoBlocks(block.tryChildren, target, newBlock),
-        catchChildren: insertIntoBlocks(
-          block.catchChildren,
-          target,
-          newBlock
-        ),
+        catches: block.catches.map((branch) => ({
+          ...branch,
+          children: insertIntoBlocks(branch.children, target, newBlock),
+        })),
       };
     }
 
@@ -1584,15 +1633,18 @@ function removeBlockById(
 
       if (block.type === "tryCatch") {
         const tryResult = removeBlockById(block.tryChildren, id);
-        const catchResult = removeBlockById(block.catchChildren, id);
-
         if (tryResult.removedBlock) removedBlock = tryResult.removedBlock;
-        if (catchResult.removedBlock) removedBlock = catchResult.removedBlock;
+
+        const catches = block.catches.map((branch) => {
+          const result = removeBlockById(branch.children, id);
+          if (result.removedBlock) removedBlock = result.removedBlock;
+          return { ...branch, children: result.updatedBlocks };
+        });
 
         return {
           ...block,
           tryChildren: tryResult.updatedBlocks,
-          catchChildren: catchResult.updatedBlocks,
+          catches,
         };
       }
 
@@ -1631,8 +1683,10 @@ function findBlockById(blockList: Block[], id: number): Block | null {
       const inTry = findBlockById(block.tryChildren, id);
       if (inTry) return inTry;
 
-      const inCatch = findBlockById(block.catchChildren, id);
-      if (inCatch) return inCatch;
+      for (const branch of block.catches) {
+        const inBranch = findBlockById(branch.children, id);
+        if (inBranch) return inBranch;
+      }
     }
   }
 
@@ -1651,7 +1705,7 @@ function findBlockLocation(
 
     if (block.id === id) {
       if (area === "root") return { area: "root", index };
-      if (area === "elifChildren") {
+      if (area === "elifChildren" || area === "catchChildren") {
         return {
           area,
           parentId: parentId as number,
@@ -1712,13 +1766,16 @@ function findBlockLocation(
       );
       if (inTry) return inTry;
 
-      const inCatch = findBlockLocation(
-        block.catchChildren,
-        id,
-        "catchChildren",
-        block.id
-      );
-      if (inCatch) return inCatch;
+      for (const branch of block.catches) {
+        const inBranch = findBlockLocation(
+          branch.children,
+          id,
+          "catchChildren",
+          block.id,
+          branch.id
+        );
+        if (inBranch) return inBranch;
+      }
     }
   }
 
@@ -1733,6 +1790,13 @@ function isSameListTarget(
   if (source.area === "root" && target.area === "root") return true;
 
   if (source.area === "elifChildren" && target.area === "elifChildren") {
+    return (
+      source.parentId === target.parentId &&
+      source.branchId === target.branchId
+    );
+  }
+
+  if (source.area === "catchChildren" && target.area === "catchChildren") {
     return (
       source.parentId === target.parentId &&
       source.branchId === target.branchId
@@ -2061,12 +2125,15 @@ function syncFunctionCalls(
             nextName,
             nextParams
           ),
-          catchChildren: syncFunctionCalls(
-            block.catchChildren,
-            functionId,
-            nextName,
-            nextParams
-          ),
+          catches: block.catches.map((branch) => ({
+            ...branch,
+            children: syncFunctionCalls(
+              branch.children,
+              functionId,
+              nextName,
+              nextParams
+            ),
+          })),
         };
     }
   });
@@ -2279,10 +2346,10 @@ function removeFunctionCalls(
               block.tryChildren,
               functionId
             ),
-            catchChildren: removeFunctionCalls(
-              block.catchChildren,
-              functionId
-            ),
+            catches: block.catches.map((branch) => ({
+              ...branch,
+              children: removeFunctionCalls(branch.children, functionId),
+            })),
           };
       }
     });
@@ -2484,9 +2551,12 @@ function serializeBlock(block: Block): JsonBlock {
       return {
         id: block.id,
         type: "tryCatch",
-        catchErrorName: block.catchErrorName,
         tryChildren: block.tryChildren.map(serializeBlock),
-        catchChildren: block.catchChildren.map(serializeBlock),
+        catches: block.catches.map((branch) => ({
+          id: branch.id,
+          errorType: branch.errorType,
+          children: branch.children.map(serializeBlock),
+        })),
       };
   }
 }
@@ -2626,8 +2696,10 @@ function pyBlock(block: Block, indent: number): string[] {
       return [
         `${pad}try:`,
         ...pyBlockList(block.tryChildren, indent + 1),
-        `${pad}except Exception as ${block.catchErrorName || "e"}:`,
-        ...pyBlockList(block.catchChildren, indent + 1),
+        ...block.catches.flatMap((branch) => [
+          `${pad}except ${branch.errorType}:`,
+          ...pyBlockList(branch.children, indent + 1),
+        ]),
       ];
   }
 }
@@ -2842,11 +2914,6 @@ function collectBlockErrors(
       return;
 
     case "tryCatch":
-      if (block.catchErrorName.trim() === "") {
-        errors.push(
-          `${location}.catchErrorName: Error variable cannot be empty.`
-        );
-      }
       block.tryChildren.forEach((child, index) =>
         collectBlockErrors(
           child,
@@ -2854,13 +2921,15 @@ function collectBlockErrors(
           errors
         )
       );
-      block.catchChildren.forEach((child, index) =>
-        collectBlockErrors(
-          child,
-          `${location}.catchChildren[${index}]`,
-          errors
-        )
-      );
+      block.catches.forEach((branch, branchIndex) => {
+        branch.children.forEach((child, childIndex) =>
+          collectBlockErrors(
+            child,
+            `${location}.catches[${branchIndex}].children[${childIndex}]`,
+            errors
+          )
+        );
+      });
   }
 }
 
@@ -2961,7 +3030,10 @@ function App() {
           return {
             ...block,
             tryChildren: update(block.tryChildren),
-            catchChildren: update(block.catchChildren),
+            catches: block.catches.map((branch) => ({
+              ...branch,
+              children: update(branch.children),
+            })),
           };
         }
 
@@ -3358,6 +3430,70 @@ function App() {
     });
   }
 
+  function addCatchBranch(blockId: number) {
+    updateBlockById(blockId, (block) => {
+      if (block.type !== "tryCatch") return block;
+
+      const newBranch: CatchBranch = {
+        id: makeId(),
+        errorType: "TypeError",
+        children: [],
+      };
+
+      // Exception matches anything, so it must stay the last branch — a new
+      // branch always lands ahead of a trailing Exception, never after it.
+      const lastIndex = block.catches.length - 1;
+      const lastIsException =
+        lastIndex >= 0 && block.catches[lastIndex].errorType === "Exception";
+
+      const catches = lastIsException
+        ? [
+            ...block.catches.slice(0, lastIndex),
+            newBranch,
+            block.catches[lastIndex],
+          ]
+        : [...block.catches, newBranch];
+
+      return { ...block, catches };
+    });
+  }
+
+  function removeCatchBranch(blockId: number, branchId: number) {
+    updateBlockById(blockId, (block) => {
+      if (block.type !== "tryCatch" || block.catches.length <= 1) {
+        return block;
+      }
+      return {
+        ...block,
+        catches: block.catches.filter((branch) => branch.id !== branchId),
+      };
+    });
+  }
+
+  function updateCatchErrorType(
+    blockId: number,
+    branchId: number,
+    errorType: PythonErrorType
+  ) {
+    updateBlockById(blockId, (block) => {
+      if (block.type !== "tryCatch") return block;
+
+      const updated = block.catches.map((branch) =>
+        branch.id === branchId ? { ...branch, errorType } : branch
+      );
+
+      if (errorType !== "Exception") return { ...block, catches: updated };
+
+      // Exception must stay last — move the branch that just became
+      // Exception to the end instead of leaving it mid-chain, unreachable.
+      const target = updated.find((branch) => branch.id === branchId);
+      if (!target) return { ...block, catches: updated };
+
+      const rest = updated.filter((branch) => branch.id !== branchId);
+      return { ...block, catches: [...rest, target] };
+    });
+  }
+
   function addElseBranch(blockId: number) {
     updateBlockById(blockId, (block) => {
       if (block.type !== "if" || block.elseChildren !== null) return block;
@@ -3377,7 +3513,7 @@ function App() {
     if (target.area === "expression") {
       return `expression-${target.expressionId}`;
     }
-    if (target.area === "elifChildren") {
+    if (target.area === "elifChildren" || target.area === "catchChildren") {
       return `${target.area}-${target.parentId}-${target.branchId}-${target.index}`;
     }
     return `${target.area}-${target.parentId}-${target.index}`;
@@ -3920,7 +4056,7 @@ function App() {
     branchId?: number
   ): ListDropTarget {
     if (area === "root") return { area: "root", index };
-    if (area === "elifChildren") {
+    if (area === "elifChildren" || area === "catchChildren") {
       return {
         area,
         parentId: parentId as number,
@@ -4960,31 +5096,66 @@ function App() {
             {renderNestedArea(
               block.tryChildren,
               "tryChildren",
-              block.id
+              block.id,
+              undefined,
+              "Drop blocks for the try body"
             )}
 
-            <div className="catch-row">
-              <span>catch</span>
-              <input
-                placeholder="error"
-                value={block.catchErrorName}
-                style={{
-                  width: getInputWidth(block.catchErrorName),
+            {block.catches.map((branch, index) => (
+              <div className="conditional-branch" key={branch.id}>
+                <div className="branch-header-row catch-header-row">
+                  <span>catch</span>
+                  <select
+                    value={branch.errorType}
+                    onChange={(event) =>
+                      updateCatchErrorType(
+                        block.id,
+                        branch.id,
+                        event.target.value as PythonErrorType
+                      )
+                    }
+                  >
+                    {ERROR_TYPES.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.value}
+                      </option>
+                    ))}
+                  </select>
+
+                  {block.catches.length > 1 && (
+                    <button
+                      className="remove-branch-button"
+                      title={`Remove catch ${index + 1}`}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        removeCatchBranch(block.id, branch.id);
+                      }}
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+
+                {renderNestedArea(
+                  branch.children,
+                  "catchChildren",
+                  block.id,
+                  branch.id,
+                  `Drop blocks for catch ${index + 1}`
+                )}
+              </div>
+            ))}
+
+            <div className="if-branch-controls">
+              <button
+                onClick={(event) => {
+                  event.stopPropagation();
+                  addCatchBranch(block.id);
                 }}
-                onChange={(event) =>
-                  updateBlockField(
-                    block.id,
-                    "catchErrorName",
-                    sanitizeIdentifierInput(event.target.value)
-                  )
-                }
-              />
+              >
+                + catch
+              </button>
             </div>
-            {renderNestedArea(
-              block.catchChildren,
-              "catchChildren",
-              block.id
-            )}
           </>
         )}
       </div>

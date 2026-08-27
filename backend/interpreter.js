@@ -14,8 +14,8 @@ const { NameError, ValueError } = require('./errors');          // B4
 // Identifier rules
 // ---------------------------------------------------------------------------
 // #26: every name the program BINDS — assignment targets, parallel-assignment
-// targets, loop variables, a catch's error name, function names and their
-// parameters — must be a legal identifier. Python decides this at compile time
+// targets, loop variables, function names and their parameters — must be a
+// legal identifier. Python decides this at compile time
 // and raises SyntaxError before a single statement runs, so the check lives in
 // the build phase (toStmt / def registration), not at evaluate time. Reads of a
 // name are left alone: an undefined name is still a runtime NameError.
@@ -142,8 +142,9 @@ function literalExpr(dataType, value) {
 const CHAIN_PRECEDENCE = { '+': 1, '-': 1, '*': 2, '/': 2, '%': 2 };
 
 // #7 / #8 / #10: the frontend names container arrays `children`,
-// `tryChildren`, `catchChildren`. Older payloads used `body` / `handler`.
-// Both are accepted so nothing in flight breaks.
+// `tryChildren`, and (inside each catch) `children` again. Older payloads used
+// `body` / `handler` / a single flat `catchChildren`. All are accepted so
+// nothing in flight breaks.
 function pick(...candidates) {
     for (const c of candidates) if (Array.isArray(c)) return c;
     return [];
@@ -497,17 +498,20 @@ function makeBuilder(output, identity) {
 
             case 'tryCatch':
             case 'tac': {
-                // #26: `except E as name` binds `name`, so it follows the same
-                // identifier rules — but only when a name is actually given
-                // (a bare catch that binds nothing is left as-is).
-                const catchName = block.catchErrorName ?? block.error;
-                if (catchName !== undefined && catchName !== null && catchName !== '') {
-                    validateName(catchName);
-                }
+                // The frontend sends `catches: [{ errorType, children }, ...]`,
+                // one entry per except clause. Older payloads sent a single
+                // untyped catch (`catchChildren` / `handler`) that matched
+                // anything — that's the same as one `Exception` clause today.
+                const rawCatches = Array.isArray(block.catches) && block.catches.length
+                    ? block.catches
+                    : [{ errorType: 'Exception', children: pick(block.catchChildren, block.handler) }];
+
                 return new TaC(
                     pick(block.tryChildren, block.body).map(toStmt),
-                    catchName,
-                    pick(block.catchChildren, block.handler).map(toStmt)
+                    rawCatches.map((c) => ({
+                        errorType: typeof c.errorType === 'string' && c.errorType ? c.errorType : 'Exception',
+                        body: pick(c.children, c.body).map(toStmt),
+                    }))
                 );
             }
 

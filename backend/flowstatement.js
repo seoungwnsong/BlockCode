@@ -156,11 +156,14 @@ class While extends Statement {
 }
 
 class TaC extends Statement {
-    constructor(body, error, handler) {
+    // `catches` is an ordered list of { errorType, body }, mirroring a chain of
+    // Python `except` clauses. The first entry whose errorType matches the
+    // thrown error's `.name` — or whose errorType is 'Exception', which matches
+    // anything — runs; the rest are skipped, exactly like Python's except chain.
+    constructor(body, catches) {
         super();
         this.body = body;
-        this.error = error;
-        this.handler = handler;
+        this.catches = catches;
     }
     evaluate(env) {
         try {
@@ -172,12 +175,14 @@ class TaC extends Statement {
             // Without this the catch block swallows it and the function never returns.
             if (e instanceof ReturnSignal) throw e;
 
-            // A3: an Error object serializes to {} through res.json(), so the
-            // catch variable showed as an empty object in the variables panel.
-            // Bind the message string — this also makes `print(error)` behave
-            // like Python's `print(err)`.
-            env[this.error] = e instanceof Error ? e.message : String(e);
-            for (const stmt of this.handler) {
+            const errorName = (e instanceof Error && e.name) ? e.name : 'Exception';
+            const match = this.catches.find(
+                (c) => c.errorType === 'Exception' || c.errorType === errorName
+            );
+            // No matching except clause — Python lets the error keep propagating.
+            if (!match) throw e;
+
+            for (const stmt of match.body) {
                 stmt.evaluate(env);
             }
         }

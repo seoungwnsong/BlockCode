@@ -2161,15 +2161,18 @@ pre {
   opacity: 0.72;
 }
 
-.if-block:hover .if-branch-controls button {
+.if-block:hover .if-branch-controls button,
+.tryCatch-block:hover .if-branch-controls button {
   opacity: 1;
 }
 
-.if-block.container-block {
+.if-block.container-block,
+.tryCatch-block.container-block {
   min-width: 380px;
 }
 
-.if-block .conditional-branch .nested-area {
+.if-block .conditional-branch .nested-area,
+.tryCatch-block .conditional-branch .nested-area {
   margin-top: 7px;
 }
 
