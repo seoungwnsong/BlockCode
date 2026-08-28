@@ -5,7 +5,7 @@ const { BinaryOperator, Compare, BoolOp } = require('./operations');
 const { num, Booleans, Strings } = require('./permitivedatatypes');
 const { PyList, PySet, PyDict, PyTuple, PyFloat, serializeValue, pyBool } = require('./object');   // composite types
 const { isBuiltin, callBuiltin } = require('./builtins');        // len/type/int/id/…
-const { createIdentityManager } = require('./identity');         // runtime `is` / id()
+const { createIdentityManager, isScalar, scalarKey } = require('./identity');   // runtime `is` / id()
 const { parse } = require('./parser');
 const { UserFunction, Return, Call } = require('./function');   // #11, #12, #13
 const { NameError, ValueError } = require('./errors');          // B4
@@ -151,6 +151,42 @@ function pick(...candidates) {
 }
 
 // ---------------------------------------------------------------------------
+// Tuple-literal interning
+// ---------------------------------------------------------------------------
+// Python's own tuples aren't interned like this — this is a deliberate
+// Block Code teaching device, the same spirit as small-int interning: two
+// tuple LITERALS with equal, fully-immutable contents are canonicalized to
+// the same runtime object, so `x = (1, 2); y = (1, 2)` gives `x is y`. This
+// only ever applies to the literal-evaluation path below (the `tuple` case
+// in toExpr) — the tuple() builtin (builtins.js) always builds a fresh
+// PyTuple and never consults the pool, so a dynamically-built tuple never
+// collides with a literal's identity even when their values match.
+//
+// A value is safe to fold into the key only if it can never change out from
+// under the cache: a scalar (isScalar — int/float/bool/str/None), or a
+// PyTuple whose own items are (recursively) all safe. A list/set/dict inside
+// the tuple disqualifies the whole literal, exactly like `([1, 2], 3)`
+// staying un-interned because its list is mutable even though the outer
+// tuple is not.
+function isInternableTupleValue(value) {
+    if (isScalar(value)) return true;
+    if (value instanceof PyTuple) return value.items.every(isInternableTupleValue);
+    return false;
+}
+
+// A structural key distinguishing both value AND type at every position —
+// built from the same scalarKey identity.js uses for scalar interning, so
+// (1,) and ("1",) and (True,) never collide. Nested tuples recurse into their
+// own parenthesized key.
+function tupleInternKey(items) {
+    return items
+        .map((value) => value instanceof PyTuple
+            ? `(${tupleInternKey(value.items)})`
+            : scalarKey(value))
+        .join('|');
+}
+
+// ---------------------------------------------------------------------------
 // Per-run builder
 // ---------------------------------------------------------------------------
 // #16: the block -> node converters are built per run so Print can be handed
@@ -159,6 +195,10 @@ function pick(...candidates) {
 // state. toExpr, foldCalculationChain, valueExpr and toStmt all live here and
 // share those two captured values.
 function makeBuilder(output, identity) {
+    // Canonical-tuple cache for this run only — a fresh Map every call, so
+    // interned identities never leak between separate program executions
+    // (mirrors identity itself being minted fresh per run, see runProgram).
+    const tupleLiteralPool = new Map();
 
     // Turns a block into an Expr node — works recursively for composed expressions
     function toExpr(block) {
@@ -196,14 +236,29 @@ function makeBuilder(output, identity) {
             }
 
             // A tuple literal: { type:'tuple', items:[ <value block>, ... ] }.
-            // Each evaluation constructs a NEW PyTuple, so two separately built
-            // tuples carry distinct runtime identity even when their values are
-            // equal (x = (1,2); y = (1,2)  ->  x == y but not x is y). Tuples are
-            // never interned by value.
+            // Canonicalized through tupleLiteralPool (see above) when every item
+            // is safely immutable, so x = (1,2); y = (1,2) gives x is y — the
+            // same educational identity model as int/str/bool interning. A
+            // literal with any mutable content (a list, say) skips the pool and
+            // always builds a fresh PyTuple, same as before.
             case 'tuple': {
                 const items = Array.isArray(block.items) ? block.items : [];
                 const exprs = items.map(toExpr);
-                return { evaluate: (env) => new PyTuple(exprs.map(e => e.evaluate(env))) };
+                return {
+                    evaluate: (env) => {
+                        const values = exprs.map(e => e.evaluate(env));
+                        if (!values.every(isInternableTupleValue)) {
+                            return new PyTuple(values);
+                        }
+                        const key = tupleInternKey(values);
+                        let tup = tupleLiteralPool.get(key);
+                        if (!tup) {
+                            tup = new PyTuple(values);
+                            tupleLiteralPool.set(key, tup);
+                        }
+                        return tup;
+                    },
+                };
             }
 
             // A set literal: { type:'set', items:[ <value block>, ... ] }.

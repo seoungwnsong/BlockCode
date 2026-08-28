@@ -924,8 +924,10 @@ t('#31  the len(numbers) example from the spec',
 // #32  Runtime identity — id(), `is` / `is not`. The `id` fields in the block
 //      JSON are editor ids; runtime identity is minted separately by the
 //      interpreter. Equal immutable scalars share identity; separately built
-//      lists/sets/dicts/tuples do not; assignment (and tuple() of a tuple)
-//      preserves it.
+//      lists/sets/dicts do not; assignment (and tuple() of a tuple) preserves
+//      it. Tuple LITERALS with fully-immutable contents are the one exception
+//      that intern like scalars (see interpreter.js's tuple case) — a tuple
+//      built at runtime via tuple() is not.
 // ===========================================================================
 
 const isOp    = (left, right) => ({ type: 'logic', left, operator: 'is', right });
@@ -974,14 +976,57 @@ t('#32  y = x makes them the same list',
       { id: 3, type: 'print', value: isOp(ref('x'), ref('y')) }] },
   (r, e) => { noErr(e); eq(r.output, ['True'], 'alias is'); });
 
-// (4) Separately constructed equal tuples have different identities.
-t('#32  equal tuples are distinct objects',
+// (4) Equal tuple LITERALS are canonicalized (interned), same educational
+// model as int/str/bool — see interpreter.js's tuple case. == and is both
+// hold here, deliberately unlike lists.
+t('#32  equal tuple literals share identity (interned)',
   { blocks: [
       { id: 1, type: 'variable', name: 'x', value: tup(lit('int', 1), lit('int', 2)) },
       { id: 2, type: 'variable', name: 'y', value: tup(lit('int', 1), lit('int', 2)) },
       { id: 3, type: 'print', value: { type: 'logic', left: ref('x'), operator: '==', right: ref('y') } },
       { id: 4, type: 'print', value: isOp(ref('x'), ref('y')) }] },
-  (r, e) => { noErr(e); eq(r.output, ['True', 'False'], 'tuple == but not is'); });
+  (r, e) => { noErr(e); eq(r.output, ['True', 'True'], 'tuple literal == and is'); });
+
+// (4b) A tuple built at runtime via tuple() is NOT pooled with literals —
+// two separate conversions of equal-valued lists stay distinct objects,
+// exactly like the old list behavior above, even though their values are ==.
+t('#32  tuple() of separately built lists: == true but is false',
+  { blocks: [
+      { id: 1, type: 'variable', name: 'a', value: arr(lit('int', 1), lit('int', 2)) },
+      { id: 2, type: 'variable', name: 'b', value: arr(lit('int', 1), lit('int', 2)) },
+      { id: 3, type: 'variable', name: 'x', value: bi('tuple', ref('a')) },
+      { id: 4, type: 'variable', name: 'y', value: bi('tuple', ref('b')) },
+      { id: 5, type: 'print', value: { type: 'logic', left: ref('x'), operator: '==', right: ref('y') } },
+      { id: 6, type: 'print', value: isOp(ref('x'), ref('y')) }] },
+  (r, e) => { noErr(e); eq(r.output, ['True', 'False'], 'tuple() == but not is'); });
+
+// (4c) A tuple literal is not pooled with a value-equal tuple() conversion
+// either — interning is strictly literal-to-literal.
+t('#32  a tuple literal and an == tuple() conversion are still distinct objects',
+  { blocks: [
+      { id: 1, type: 'variable', name: 'a', value: arr(lit('int', 1), lit('int', 2)) },
+      { id: 2, type: 'variable', name: 'x', value: tup(lit('int', 1), lit('int', 2)) },
+      { id: 3, type: 'variable', name: 'y', value: bi('tuple', ref('a')) },
+      { id: 4, type: 'print', value: { type: 'logic', left: ref('x'), operator: '==', right: ref('y') } },
+      { id: 5, type: 'print', value: isOp(ref('x'), ref('y')) }] },
+  (r, e) => { noErr(e); eq(r.output, ['True', 'False'], 'literal vs conversion'); });
+
+// (4d) A tuple literal containing a mutable list is never pooled, even
+// though the outer tuple is immutable — the list inside is not.
+t('#32  a tuple literal containing a list is not interned',
+  { blocks: [
+      { id: 1, type: 'variable', name: 'x', value: tup(arr(lit('int', 1), lit('int', 2)), lit('int', 3)) },
+      { id: 2, type: 'variable', name: 'y', value: tup(arr(lit('int', 1), lit('int', 2)), lit('int', 3)) },
+      { id: 3, type: 'print', value: isOp(ref('x'), ref('y')) }] },
+  (r, e) => { noErr(e); eq(r.output, ['False'], 'mutable content disqualifies interning'); });
+
+// (4e) Nested tuple literals intern recursively.
+t('#32  nested tuple literals share identity too',
+  { blocks: [
+      { id: 1, type: 'variable', name: 'x', value: tup(tup(lit('int', 1), lit('int', 2)), tup(lit('int', 3), lit('int', 4))) },
+      { id: 2, type: 'variable', name: 'y', value: tup(tup(lit('int', 1), lit('int', 2)), tup(lit('int', 3), lit('int', 4))) },
+      { id: 3, type: 'print', value: isOp(ref('x'), ref('y')) }] },
+  (r, e) => { noErr(e); eq(r.output, ['True'], 'nested literal tuples intern'); });
 
 t('#32  a tuple assigned to another name keeps its identity',
   { blocks: [

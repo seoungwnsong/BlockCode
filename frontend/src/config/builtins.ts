@@ -128,6 +128,14 @@ export const METHOD_GROUPS: BuiltinGroup[] = [
       { name: "set.difference", argLabels: ["set", "other"] },
     ],
   },
+  {
+    id: "tuple",
+    title: "Tuple",
+    functions: [
+      { name: "tuple.count", argLabels: ["tuple", "value"] },
+      { name: "tuple.index", argLabels: ["tuple", "value"] },
+    ],
+  },
 ];
 
 export function getBuiltinDefinition(name: BuiltinFunctionName): BuiltinDefinition {

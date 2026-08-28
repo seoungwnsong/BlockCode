@@ -77,6 +77,12 @@ export type SetExpression = {
   items: Expression[];
 };
 
+export type TupleExpression = {
+  id: number;
+  type: "tuple";
+  items: Expression[];
+};
+
 export type DictionaryEntry = {
   id: number;
   key: Expression;
@@ -138,7 +144,9 @@ export type BuiltinFunctionName =
   | "set.discard"
   | "set.union"
   | "set.intersection"
-  | "set.difference";
+  | "set.difference"
+  | "tuple.count"
+  | "tuple.index";
 
 export type BuiltinGroupId =
   | "general"
@@ -148,7 +156,8 @@ export type BuiltinGroupId =
   | "list"
   | "string"
   | "dict"
-  | "set";
+  | "set"
+  | "tuple";
 
 export type BuiltinCallExpression = {
   id: number;
@@ -176,6 +185,7 @@ export type Expression =
   | ComparisonChainExpression
   | ArrayExpression
   | SetExpression
+  | TupleExpression
   | DictionaryExpression
   | BuiltinCallExpression
   | CallExpression;
@@ -187,6 +197,7 @@ export type ExpressionStatementBlock =
   | ComparisonChainExpression
   | ArrayExpression
   | SetExpression
+  | TupleExpression
   | DictionaryExpression
   | BuiltinCallExpression
   | CallExpression;
@@ -404,6 +415,11 @@ export type JsonExpression =
     }
   | {
       id: number;
+      type: "tuple";
+      items: JsonExpression[];
+    }
+  | {
+      id: number;
       type: "dictionary";
       entries: {
         id: number;
@@ -463,6 +479,7 @@ export type JsonBlock =
           | "comparisonChain"
           | "array"
           | "set"
+          | "tuple"
           | "dictionary"
           | "builtinCall"
           | "call";

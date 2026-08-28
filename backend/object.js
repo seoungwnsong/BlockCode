@@ -18,7 +18,9 @@
 // int/float/bool/str (the only hashable scalars) are all JS primitives, so
 // {1, 1} collapses to {1} and a duplicate dict key overwrites, exactly as in
 // Python. A tuple has no native JS equivalent, so PyTuple is a thin immutable
-// wrapper produced by the tuple() builtin; there is no tuple LITERAL block yet.
+// wrapper — produced by the tuple() builtin, or directly by a tuple literal
+// block ({ type: 'tuple', items: [...] }), which interpreter.js's toExpr
+// evaluates the same lazy way as a list/set literal.
 
 const { Expr } = require('./permitivedatatypes');
 const { KeyError, typeName } = require('./errors');
@@ -33,10 +35,10 @@ function isMutable(value) {
 }
 
 // An immutable tuple value. `items` are already-EVALUATED runtime values (unlike
-// the literal nodes above, which hold Expr nodes) because the only producer so
-// far is the tuple() builtin, which converts an existing iterable. isPyTuple is a
-// prototype getter, not an own property, so it tags the value for typeName()
-// without ever appearing in JSON output.
+// the literal nodes above, which hold Expr nodes) — both producers, the tuple()
+// builtin and the tuple literal block, evaluate their source values before
+// building this. isPyTuple is a prototype getter, not an own property, so it
+// tags the value for typeName() without ever appearing in JSON output.
 class PyTuple {
     constructor(items = []) {
         this.items = items;

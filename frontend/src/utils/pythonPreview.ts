@@ -51,6 +51,13 @@ export function pyExpression(expression: Expression): string {
         ? "set()"
         : `{${expression.items.map(pyExpression).join(", ")}}`;
 
+    case "tuple":
+      // A single-element tuple needs its trailing comma — (1,) is a tuple,
+      // (1) is just a parenthesized value. Every other size reads normally.
+      return expression.items.length === 1
+        ? `(${pyExpression(expression.items[0])},)`
+        : `(${expression.items.map(pyExpression).join(", ")})`;
+
     case "dictionary":
       return `{${expression.entries
         .map((entry) => `${pyExpression(entry.key)}: ${pyExpression(entry.value)}`)

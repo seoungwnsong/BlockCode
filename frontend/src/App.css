@@ -2230,7 +2230,8 @@ pre {
 
 .array-block,
 .set-block,
-.dictionary-block {
+.dictionary-block,
+.tuple-block {
   max-width: none;
 }
 
@@ -2313,6 +2314,7 @@ pre {
   --brand-green: #bdd9b8;
   --brand-lavender: #cdc2e8;
   --brand-teal: #a3d9d3;
+  --brand-amber: #e0b878;
 
   --studio-bg: #090d13;
   --studio-panel: #0d1420;
@@ -3538,6 +3540,18 @@ textarea {
   color: #0d2d29;
 }
 
+.builtin-template-tuple {
+  --builtin-color: var(--brand-amber);
+  --builtin-border: #c99f5c;
+  --builtin-text: #4a3510;
+}
+
+.builtin-template-tuple:hover {
+  --builtin-color: #f0dcb0;
+  --builtin-border: #d9c085;
+  color: #3a2a0d;
+}
+
 .builtin-template-list .builtin-template-parentheses {
   color: rgba(90, 47, 20, 0.68);
 }
@@ -3554,6 +3568,10 @@ textarea {
   color: rgba(17, 58, 53, 0.68);
 }
 
+.builtin-template-tuple .builtin-template-parentheses {
+  color: rgba(74, 53, 16, 0.68);
+}
+
 .builtin-group-list h2 {
   color: #e0b696;
 }
@@ -3568,6 +3586,10 @@ textarea {
 
 .builtin-group-set h2 {
   color: #8fc9c2;
+}
+
+.builtin-group-tuple h2 {
+  color: #d9c085;
 }
 
 .builtinCall-block.builtin-call-list,
@@ -3620,6 +3642,19 @@ textarea {
 
 .builtin-call-set .builtin-call-name {
   color: #113a35;
+}
+
+.builtinCall-block.builtin-call-tuple,
+.nested-expression.builtin-call-expression.builtin-call-tuple {
+  background: var(--brand-amber);
+  --slot-bg: #f7ecd8;
+  --slot-border: #ecd9b3;
+  --slot-text: #4a3510;
+  --slot-placeholder: #6b7280;
+}
+
+.builtin-call-tuple .builtin-call-name {
+  color: #4a3510;
 }
 
 
@@ -3748,16 +3783,18 @@ textarea {
   --slot-placeholder: #5b5563;
 }
 
-/* Data: array/list, set, and dictionary share the same mint. */
+/* Data: array/list, set, dictionary, and tuple share the same mint. */
 .array-template,
 .set-template,
-.dictionary-template {
+.dictionary-template,
+.tuple-template {
   background: var(--mint-block);
 }
 
 .array-block,
 .set-block,
 .dictionary-block,
+.tuple-block,
 .nested-expression.collection-expression {
   background: var(--mint-block);
   --slot-bg: #ccfbf1;

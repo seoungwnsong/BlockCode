@@ -42,6 +42,7 @@ import type {
   MathOperator,
   PythonErrorType,
   SetExpression,
+  TupleExpression,
   UserFunction,
 } from "./types/blocks";
 import {
@@ -422,7 +423,7 @@ function App() {
 
   function addCollectionItem(id: number) {
     updateCurrentExpression(id, (expression) => {
-      if (expression.type !== "array" && expression.type !== "set") {
+      if (expression.type !== "array" && expression.type !== "set" && expression.type !== "tuple") {
         return expression;
       }
 
@@ -435,7 +436,7 @@ function App() {
 
   function removeCollectionItem(id: number, index: number) {
     updateCurrentExpression(id, (expression) => {
-      if (expression.type !== "array" && expression.type !== "set") {
+      if (expression.type !== "array" && expression.type !== "set" && expression.type !== "tuple") {
         return expression;
       }
 
@@ -1605,10 +1606,12 @@ function App() {
   }
 
   function renderCollectionContent(
-    expression: ArrayExpression | SetExpression
+    expression: ArrayExpression | SetExpression | TupleExpression
   ) {
-    const opening = expression.type === "array" ? "[" : "{";
-    const closing = expression.type === "array" ? "]" : "}";
+    const opening =
+      expression.type === "array" ? "[" : expression.type === "tuple" ? "(" : "{";
+    const closing =
+      expression.type === "array" ? "]" : expression.type === "tuple" ? ")" : "}";
 
     return (
       <div className="expression-content-row collection-content-row">
@@ -1640,7 +1643,10 @@ function App() {
             >
               ×
             </button>
-            {index < expression.items.length - 1 && <span>,</span>}
+            {(index < expression.items.length - 1 ||
+              (expression.type === "tuple" && expression.items.length === 1)) && (
+              <span>,</span>
+            )}
           </div>
         ))}
 
@@ -1820,6 +1826,7 @@ function App() {
           ? "logic-expression"
           : expression.type === "array" ||
               expression.type === "set" ||
+              expression.type === "tuple" ||
               expression.type === "dictionary"
             ? "collection-expression"
             : expression.type === "builtinCall"
@@ -1849,7 +1856,9 @@ function App() {
           renderLogicContent(expression)}
         {expression.type === "comparisonChain" &&
           renderComparisonChainContent(expression)}
-        {(expression.type === "array" || expression.type === "set") &&
+        {(expression.type === "array" ||
+          expression.type === "set" ||
+          expression.type === "tuple") &&
           renderCollectionContent(expression)}
         {expression.type === "dictionary" &&
           renderDictionaryContent(expression)}
@@ -1932,7 +1941,9 @@ function App() {
           </div>
         )}
 
-        {(block.type === "array" || block.type === "set") && (
+        {(block.type === "array" ||
+          block.type === "set" ||
+          block.type === "tuple") && (
           <div className="block-row expression-enabled-row">
             {renderCollectionContent(block)}
           </div>
@@ -2044,6 +2055,7 @@ function App() {
       content: (
         <>
           {renderPaletteBlock("array / list", "array", "array-template")}
+          {renderPaletteBlock("tuple", "tuple", "tuple-template")}
           {renderPaletteBlock("set", "set", "set-template")}
           {renderPaletteBlock("dictionary", "dictionary", "dictionary-template")}
         </>
@@ -2185,7 +2197,9 @@ function App() {
             ? "green"
             : group.id === "dict"
               ? "lavender"
-              : "teal"
+              : group.id === "tuple"
+                ? "amber"
+                : "teal"
       })`,
       layout: "grid" as const,
       content: (

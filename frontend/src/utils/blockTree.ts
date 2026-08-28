@@ -20,6 +20,7 @@ import type {
   LiteralExpression,
   LogicExpression,
   SetExpression,
+  TupleExpression,
   UserFunction,
   VariableReferenceExpression,
 } from "../types/blocks";
@@ -243,6 +244,14 @@ export function createSetExpression(id = makeId()): SetExpression {
   };
 }
 
+export function createTupleExpression(id = makeId()): TupleExpression {
+  return {
+    id,
+    type: "tuple",
+    items: [createAtomicExpression()],
+  };
+}
+
 export function createDictionaryExpression(id = makeId()): DictionaryExpression {
   return {
     id,
@@ -320,6 +329,9 @@ export function createBlock(type: BlockType): Block {
 
     case "set":
       return createSetExpression(id);
+
+    case "tuple":
+      return createTupleExpression(id);
 
     case "dictionary":
       return createDictionaryExpression(id);
@@ -406,6 +418,7 @@ export function isExpressionStatement(
     expression.type === "comparisonChain" ||
     expression.type === "array" ||
     expression.type === "set" ||
+    expression.type === "tuple" ||
     expression.type === "dictionary" ||
     expression.type === "builtinCall" ||
     expression.type === "call"
@@ -422,6 +435,7 @@ export function isExpressionStatementBlock(
     block.type === "comparisonChain" ||
     block.type === "array" ||
     block.type === "set" ||
+    block.type === "tuple" ||
     block.type === "dictionary" ||
     block.type === "builtinCall" ||
     block.type === "call"
@@ -456,7 +470,7 @@ export function expressionContainsId(expression: Expression, id: number): boolea
     );
   }
 
-  if (expression.type === "array" || expression.type === "set") {
+  if (expression.type === "array" || expression.type === "set" || expression.type === "tuple") {
     return expression.items.some((item) => expressionContainsId(item, id));
   }
 
@@ -516,7 +530,7 @@ export function findExpressionById(
     }
   }
 
-  if (expression.type === "array" || expression.type === "set") {
+  if (expression.type === "array" || expression.type === "set" || expression.type === "tuple") {
     for (const item of expression.items) {
       const found = findExpressionById(item, id);
       if (found) return found;
@@ -593,7 +607,7 @@ export function updateExpressionById(
     };
   }
 
-  if (expression.type === "array" || expression.type === "set") {
+  if (expression.type === "array" || expression.type === "set" || expression.type === "tuple") {
     return {
       ...expression,
       items: expression.items.map((item) =>
@@ -1270,7 +1284,7 @@ export function syncExpressionFunctionCalls(
     };
   }
 
-  if (expression.type === "array" || expression.type === "set") {
+  if (expression.type === "array" || expression.type === "set" || expression.type === "tuple") {
     return {
       ...expression,
       items: expression.items.map((item) =>
@@ -1567,7 +1581,7 @@ export function removeFunctionCallsFromExpression(
     };
   }
 
-  if (expression.type === "array" || expression.type === "set") {
+  if (expression.type === "array" || expression.type === "set" || expression.type === "tuple") {
     return {
       ...expression,
       items: expression.items.map((item) =>
@@ -1784,6 +1798,13 @@ export function serializeExpression(expression: Expression): JsonExpression {
         items: expression.items.map(serializeExpression),
       };
 
+    case "tuple":
+      return {
+        id: expression.id,
+        type: "tuple",
+        items: expression.items.map(serializeExpression),
+      };
+
     case "dictionary":
       return {
         id: expression.id,
@@ -1977,7 +1998,7 @@ export function collectExpressionErrors(
     return;
   }
 
-  if (expression.type === "array" || expression.type === "set") {
+  if (expression.type === "array" || expression.type === "set" || expression.type === "tuple") {
     expression.items.forEach((item, index) =>
       collectExpressionErrors(
         item,

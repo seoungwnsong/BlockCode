@@ -222,10 +222,11 @@ function extreme(name, args, keep) {
 
 const NONE = null;   // Python None
 
-const isList = (v) => Array.isArray(v);
-const isStr  = (v) => typeof v === 'string';
-const isDict = (v) => v instanceof Map;
-const isSet  = (v) => v instanceof Set;
+const isList  = (v) => Array.isArray(v);
+const isStr   = (v) => typeof v === 'string';
+const isDict  = (v) => v instanceof Map;
+const isSet   = (v) => v instanceof Set;
+const isTuple = (v) => v instanceof PyTuple;
 
 // Guard the receiver's type with a Python-shaped message. `fn` is the dotted
 // method name so the error reads e.g. "list.append() requires a list, not int".
@@ -274,8 +275,10 @@ const BUILTINS = {
         const x = a[0];
         // tuple() of an existing tuple returns that SAME object, so identity is
         // preserved (x is tuple(x)); of any other iterable it builds a new one.
-        // Tuples are never cached by value — a fresh iterable always yields a
-        // fresh tuple, even when the contents are equal.
+        // This never consults interpreter.js's tuple-LITERAL pool — that
+        // canonicalization is deliberately literal-only, so two runtime
+        // conversions of equal-valued iterables stay distinct objects even
+        // though their values are still == (see interpreter.js's tuple case).
         return x instanceof PyTuple ? x : new PyTuple(iterate(x));
     },
     set:   (a) => { exactly('set', a, 1);   return toSet(a[0]); },
@@ -524,6 +527,24 @@ const BUILTINS = {
         const s = receiver('set.difference', a[0], isSet, 'set');
         const other = receiver('set.difference', a[1], isSet, 'set');
         return new Set([...s].filter((v) => !other.has(v)));
+    },
+
+    // -----------------------------------------------------------------------
+    // tuple.* — the receiver is a PyTuple. Read-only: no append/pop/insert/
+    // remove/extend/sort/reverse exist here, so a tuple can never be mutated
+    // through the method system, mirroring Python's own immutable tuple.
+    // -----------------------------------------------------------------------
+    'tuple.index': (a) => {
+        exactly('tuple.index', a, 2);
+        const tup = receiver('tuple.index', a[0], isTuple, 'tuple');
+        const i = tup.items.findIndex((el) => pyEquals(el, a[1]));
+        if (i === -1) throw new ValueError(`${pyRepr(a[1])} is not in tuple`);
+        return i;
+    },
+    'tuple.count': (a) => {
+        exactly('tuple.count', a, 2);
+        const tup = receiver('tuple.count', a[0], isTuple, 'tuple');
+        return tup.items.reduce((n, el) => n + (pyEquals(el, a[1]) ? 1 : 0), 0);
     },
 };
 
