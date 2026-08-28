@@ -4,6 +4,18 @@ import "./App.css";
 import blockCodeLogo from "./assets/blockcode-logo.png";
 import { ToolboxAccordion } from "./components/toolbox/ToolboxAccordion";
 import type { ToolboxCategory } from "./components/toolbox/ToolboxAccordion";
+import {
+  ParallelAssignBlockView,
+  PrintBlockView,
+  ReturnBlockView,
+  VariableBlockView,
+} from "./components/blocks/SimpleBlockViews";
+import {
+  ForBlockView,
+  IfBlockView,
+  TryCatchBlockView,
+  WhileBlockView,
+} from "./components/blocks/ControlFlowBlockViews";
 import type {
   ArrayExpression,
   Block,
@@ -33,7 +45,6 @@ import type {
   UserFunction,
 } from "./types/blocks";
 import {
-  ERROR_TYPES,
   BUILTIN_GROUPS,
   METHOD_GROUPS,
   getBuiltinGroupId,
@@ -1882,119 +1893,24 @@ function App() {
         </button>
 
         {block.type === "variable" && (
-          <div className="block-row expression-enabled-row">
-            <input
-              placeholder="name"
-              value={block.name}
-              style={{ width: getInputWidth(block.name, 72, 160) }}
-              onChange={(event) =>
-                updateBlockField(
-                  block.id,
-                  "name",
-                  sanitizeIdentifierInput(event.target.value)
-                )
-              }
-            />
-
-            <span>=</span>
-
-            {renderExpressionSlot(
-              block.value,
-              "value",
-              "variable-value-slot",
-              70,
-              180
-            )}
-
-            <button
-              className="expand-expression-button"
-              title="Add another variable and value"
-              onClick={(event) => {
-                event.stopPropagation();
-                expandVariableAssignment(block.id);
-              }}
-            >
-              +
-            </button>
-          </div>
+          <VariableBlockView
+            block={block}
+            updateBlockField={updateBlockField}
+            getInputWidth={getInputWidth}
+            renderExpressionSlot={renderExpressionSlot}
+            expandVariableAssignment={expandVariableAssignment}
+          />
         )}
 
         {block.type === "parallelAssign" && (
-          <div className="block-row expression-enabled-row parallel-assignment-row">
-            <div className="parallel-side parallel-targets">
-              {block.targets.map((target, index) => (
-                <div
-                  className="parallel-item"
-                  key={`target-${index}`}
-                >
-                  <input
-                    placeholder={`name ${index + 1}`}
-                    value={target}
-                    style={{
-                      width: getInputWidth(target, 68, 130),
-                    }}
-                    onChange={(event) =>
-                      updateParallelTarget(
-                        block.id,
-                        index,
-                        event.target.value
-                      )
-                    }
-                  />
-                  {index < block.targets.length - 1 && (
-                    <span>,</span>
-                  )}
-                </div>
-              ))}
-            </div>
-
-            <span>=</span>
-
-            <div className="parallel-side parallel-values">
-              {block.values.map((value, index) => (
-                <div
-                  className="parallel-item"
-                  key={value.id}
-                >
-                  {renderExpressionSlot(
-                    value,
-                    `value ${index + 1}`,
-                    "parallel-value-slot",
-                    72,
-                    170
-                  )}
-
-                  {block.targets.length > 1 && (
-                    <button
-                      className="remove-chain-button"
-                      title="Remove this assignment pair"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        removeParallelPair(block.id, index);
-                      }}
-                    >
-                      ×
-                    </button>
-                  )}
-
-                  {index < block.values.length - 1 && (
-                    <span>,</span>
-                  )}
-                </div>
-              ))}
-            </div>
-
-            <button
-              className="expand-expression-button"
-              title="Add another variable and value"
-              onClick={(event) => {
-                event.stopPropagation();
-                addParallelPair(block.id);
-              }}
-            >
-              +
-            </button>
-          </div>
+          <ParallelAssignBlockView
+            block={block}
+            getInputWidth={getInputWidth}
+            updateParallelTarget={updateParallelTarget}
+            renderExpressionSlot={renderExpressionSlot}
+            removeParallelPair={removeParallelPair}
+            addParallelPair={addParallelPair}
+          />
         )}
 
         {(block.type === "calculation" ||
@@ -2032,29 +1948,11 @@ function App() {
 
 
         {block.type === "print" && (
-          <div className="block-row expression-enabled-row">
-            <span>print</span>
-            {renderExpressionSlot(
-              block.value,
-              "value",
-              "wide-expression-slot",
-              150,
-              300
-            )}
-          </div>
+          <PrintBlockView block={block} renderExpressionSlot={renderExpressionSlot} />
         )}
 
         {block.type === "return" && (
-          <div className="block-row expression-enabled-row">
-            <span>return</span>
-            {renderExpressionSlot(
-              block.value,
-              "value",
-              "wide-expression-slot",
-              150,
-              300
-            )}
-          </div>
+          <ReturnBlockView block={block} renderExpressionSlot={renderExpressionSlot} />
         )}
 
         {block.type === "builtinCall" && (
@@ -2070,230 +1968,43 @@ function App() {
         )}
 
         {block.type === "if" && (
-          <>
-            <div className="block-row expression-enabled-row">
-              <span>if</span>
-              {renderExpressionSlot(
-                block.condition,
-                "condition",
-                "condition-expression-slot",
-                110,
-                260,
-                { showBadge: false, condition: true }
-              )}
-            </div>
-
-            {renderNestedArea(
-              block.children,
-              "children",
-              block.id,
-              undefined,
-              "Drop blocks for the if branch"
-            )}
-
-            {block.elifBranches.map((branch, index) => (
-              <div className="conditional-branch" key={branch.id}>
-                <div className="branch-header-row">
-                  <span>elif</span>
-                  {renderExpressionSlot(
-                    branch.condition,
-                    "condition",
-                    "condition-expression-slot",
-                    110,
-                    260,
-                    { showBadge: false, condition: true }
-                  )}
-                  <button
-                    className="remove-branch-button"
-                    title={`Remove elif ${index + 1}`}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      removeElifBranch(block.id, branch.id);
-                    }}
-                  >
-                    ×
-                  </button>
-                </div>
-
-                {renderNestedArea(
-                  branch.children,
-                  "elifChildren",
-                  block.id,
-                  branch.id,
-                  `Drop blocks for elif ${index + 1}`
-                )}
-              </div>
-            ))}
-
-            {block.elseChildren !== null && (
-              <div className="conditional-branch">
-                <div className="branch-header-row">
-                  <span>else</span>
-                  <button
-                    className="remove-branch-button"
-                    title="Remove else branch"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      removeElseBranch(block.id);
-                    }}
-                  >
-                    ×
-                  </button>
-                </div>
-
-                {renderNestedArea(
-                  block.elseChildren,
-                  "elseChildren",
-                  block.id,
-                  undefined,
-                  "Drop blocks for the else branch"
-                )}
-              </div>
-            )}
-
-            {block.elseChildren === null && (
-              <div className="if-branch-controls">
-                <button
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    addElifBranch(block.id);
-                  }}
-                >
-                  + elif
-                </button>
-
-                <button
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    addElseBranch(block.id);
-                  }}
-                >
-                  + else
-                </button>
-              </div>
-            )}
-          </>
+          <IfBlockView
+            block={block}
+            renderExpressionSlot={renderExpressionSlot}
+            renderNestedArea={renderNestedArea}
+            removeElifBranch={removeElifBranch}
+            addElifBranch={addElifBranch}
+            addElseBranch={addElseBranch}
+            removeElseBranch={removeElseBranch}
+          />
         )}
 
         {block.type === "while" && (
-          <>
-            <div className="block-row expression-enabled-row">
-              <span>while</span>
-              {renderExpressionSlot(
-                block.condition,
-                "condition",
-                "condition-expression-slot",
-                110,
-                260,
-                { showBadge: false, condition: true }
-              )}
-            </div>
-            {renderNestedArea(block.children, "children", block.id)}
-          </>
+          <WhileBlockView
+            block={block}
+            renderExpressionSlot={renderExpressionSlot}
+            renderNestedArea={renderNestedArea}
+          />
         )}
 
         {block.type === "for" && (
-          <>
-            <div className="block-row expression-enabled-row">
-              <span>for</span>
-              <input
-                placeholder="i"
-                value={block.variable}
-                style={{ width: getInputWidth(block.variable) }}
-                onChange={(event) =>
-                  updateBlockField(
-                    block.id,
-                    "variable",
-                    sanitizeIdentifierInput(event.target.value)
-                  )
-                }
-              />
-              <span>from</span>
-              {renderExpressionSlot(
-                block.start,
-                "0",
-                "compact-expression-slot"
-              )}
-              <span>to</span>
-              {renderExpressionSlot(
-                block.end,
-                "10",
-                "compact-expression-slot"
-              )}
-            </div>
-            {renderNestedArea(block.children, "children", block.id)}
-          </>
+          <ForBlockView
+            block={block}
+            getInputWidth={getInputWidth}
+            updateBlockField={updateBlockField}
+            renderExpressionSlot={renderExpressionSlot}
+            renderNestedArea={renderNestedArea}
+          />
         )}
 
         {block.type === "tryCatch" && (
-          <>
-            <div className="block-row">
-              <span>try</span>
-            </div>
-            {renderNestedArea(
-              block.tryChildren,
-              "tryChildren",
-              block.id,
-              undefined,
-              "Drop blocks for the try body"
-            )}
-
-            {block.catches.map((branch, index) => (
-              <div className="conditional-branch" key={branch.id}>
-                <div className="branch-header-row catch-header-row">
-                  <span>catch</span>
-                  <select
-                    value={branch.errorType}
-                    onChange={(event) =>
-                      updateCatchErrorType(
-                        block.id,
-                        branch.id,
-                        event.target.value as PythonErrorType
-                      )
-                    }
-                  >
-                    {ERROR_TYPES.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.value}
-                      </option>
-                    ))}
-                  </select>
-
-                  {block.catches.length > 1 && (
-                    <button
-                      className="remove-branch-button"
-                      title={`Remove catch ${index + 1}`}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        removeCatchBranch(block.id, branch.id);
-                      }}
-                    >
-                      ×
-                    </button>
-                  )}
-                </div>
-
-                {renderNestedArea(
-                  branch.children,
-                  "catchChildren",
-                  block.id,
-                  branch.id,
-                  `Drop blocks for catch ${index + 1}`
-                )}
-              </div>
-            ))}
-
-            <div className="if-branch-controls">
-              <button
-                onClick={(event) => {
-                  event.stopPropagation();
-                  addCatchBranch(block.id);
-                }}
-              >
-                + catch
-              </button>
-            </div>
-          </>
+          <TryCatchBlockView
+            block={block}
+            renderNestedArea={renderNestedArea}
+            updateCatchErrorType={updateCatchErrorType}
+            removeCatchBranch={removeCatchBranch}
+            addCatchBranch={addCatchBranch}
+          />
         )}
       </div>
     );

@@ -238,40 +238,50 @@ export type ParallelAssignmentBlock = {
   values: Expression[];
 };
 
+export type VariableBlock = {
+  id: number;
+  type: "variable";
+  name: string;
+  value: Expression;
+};
+
+export type PrintBlock = {
+  id: number;
+  type: "print";
+  value: Expression;
+};
+
+export type ReturnBlock = {
+  id: number;
+  type: "return";
+  value: Expression;
+};
+
+export type WhileBlock = {
+  id: number;
+  type: "while";
+  condition: Expression;
+  children: Block[];
+};
+
+export type ForBlock = {
+  id: number;
+  type: "for";
+  variable: string;
+  start: Expression;
+  end: Expression;
+  children: Block[];
+};
+
 export type Block =
-  | {
-      id: number;
-      type: "variable";
-      name: string;
-      value: Expression;
-    }
+  | VariableBlock
   | ParallelAssignmentBlock
   | ExpressionStatementBlock
-  | {
-      id: number;
-      type: "print";
-      value: Expression;
-    }
-  | {
-      id: number;
-      type: "return";
-      value: Expression;
-    }
+  | PrintBlock
+  | ReturnBlock
   | IfBlock
-  | {
-      id: number;
-      type: "while";
-      condition: Expression;
-      children: Block[];
-    }
-  | {
-      id: number;
-      type: "for";
-      variable: string;
-      start: Expression;
-      end: Expression;
-      children: Block[];
-    }
+  | WhileBlock
+  | ForBlock
   | TryCatchBlock;
 
 export type UserFunction = {
