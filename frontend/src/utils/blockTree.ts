@@ -1831,9 +1831,25 @@ export function serializeExpression(expression: Expression): JsonExpression {
         functionId: expression.functionId,
         name: expression.name,
         paramNames: [...expression.paramNames],
-        args: expression.args.map(serializeExpression),
+        // A left-blank argument field is "no value supplied", not an empty
+        // string. Dropping it here keeps the argument COUNT honest so the
+        // backend raises Python's TypeError (missing required positional
+        // argument) instead of silently binding "" and running. An empty
+        // string the user actually meant is typed as "" and survives, because
+        // its source is not blank.
+        args: expression.args
+          .filter((argument) => !isBlankArgument(argument))
+          .map(serializeExpression),
       };
   }
+}
+
+// True for an argument slot the user never filled in: an atomic literal whose
+// text source is empty. createAtomicExpression turns such a blank field into an
+// empty-string literal, so this is the one place that can tell "" (typed) apart
+// from nothing at all (source === "").
+function isBlankArgument(expression: Expression): boolean {
+  return expression.type === "literal" && expression.source.trim() === "";
 }
 
 export function serializeCondition(condition: Expression): JsonCondition {

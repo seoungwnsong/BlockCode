@@ -172,7 +172,7 @@ t('#11/#12  def + call + return',
 t('#12  arity mismatch is reported',
   { functions: [{ id: 99, type: 'def', name: 'add', params: ['a', 'b'], children: [] }],
     blocks: [{ id: 1, type: 'variable', name: 'r', value: call('add', [lit('int', 1)]) }] },
-  (r, e) => { if (!e.length || !/expects 2 argument/.test(e[0].message)) throw new Error('expected arity error'); });
+  (r, e) => { if (!e.length || !/missing 1 required positional argument: 'b'/.test(e[0].message)) throw new Error('expected arity error'); });
 
 t('#13  mutual recursion (registration precedes execution)',
   { functions: [
