@@ -41,12 +41,12 @@ class UserFunction {
         // a plain `x = ...` in a function is local unless declared `global x`
         // (which this language has no block for). Params bind last, so an argument
         // named like a global wins inside the body.
+        // Object.assign copies the globals' own enumerable keys straight across
+        // (both envs are null-proto, so there is nothing else to copy) without
+        // the intermediate key array Object.keys(...) would allocate on every
+        // call — which matters under recursion, where this runs per stack frame.
         const localEnv = Object.create(null);   // #20
-        if (this.globalEnv) {
-            for (const key of Object.keys(this.globalEnv)) {
-                localEnv[key] = this.globalEnv[key];
-            }
-        }
+        if (this.globalEnv) Object.assign(localEnv, this.globalEnv);
         for (let i = 0; i < this.params.length; i++) {
             localEnv[this.params[i]] = argValues[i];
         }

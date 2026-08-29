@@ -202,7 +202,9 @@ function extreme(name, args, keep) {
     }
     let best = values[0];
     for (let i = 1; i < values.length; i++) {
-        if (Math.sign(pyCompare(values[i], best)) === keep) best = values[i];
+        // pyCompare already returns exactly -1 / 0 / 1, so it can be matched
+        // against `keep` directly — no Math.sign needed.
+        if (pyCompare(values[i], best) === keep) best = values[i];
     }
     return best;
 }
