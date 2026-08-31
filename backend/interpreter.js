@@ -3,7 +3,7 @@ const {
 } = require('./flowstatement');
 const { BinaryOperator, Compare, BoolOp } = require('./operations');
 const { num, Booleans, Strings } = require('./permitivedatatypes');
-const { PyList, PySet, PyDict, PyTuple, PyFloat, serializeValue, pyBool } = require('./object');   // composite types
+const { PyList, PySet, PyDict, PyTuple, PyFloat, serializeValue, pyBool, getItem, getSlice } = require('./object');   // composite types
 const { isBuiltin, callBuiltin } = require('./builtins');        // len/type/int/id/…
 const { createIdentityManager, isScalar, scalarKey } = require('./identity');   // runtime `is` / id()
 const { parse } = require('./parser');
@@ -280,6 +280,34 @@ function makeBuilder(output, identity) {
                     }
                     return { key: toExpr(entry.key), value: toExpr(entry.value) };
                 }));
+            }
+
+            // Get Item: { type:'index', target, index } -> target[index]. Supports
+            // List/String/Tuple; getItem (object.js) is where the type dispatch,
+            // negative-index normalization and bounds checking actually live.
+            case 'index': {
+                const targetExpr = toExpr(block.target);
+                const indexExpr = toExpr(block.index);
+                return { evaluate: (env) => getItem(targetExpr.evaluate(env), indexExpr.evaluate(env)) };
+            }
+
+            // Slice: { type:'slice', target, start, stop, step } -> target[start:stop:step].
+            // start/stop/step are each either a value block or null/undefined
+            // (Python's None — "omitted"), matching the frontend's SliceExpression
+            // exactly rather than standing in a fake empty-literal block for them.
+            case 'slice': {
+                const targetExpr = toExpr(block.target);
+                const startExpr = (block.start === null || block.start === undefined) ? null : toExpr(block.start);
+                const stopExpr = (block.stop === null || block.stop === undefined) ? null : toExpr(block.stop);
+                const stepExpr = (block.step === null || block.step === undefined) ? null : toExpr(block.step);
+                return {
+                    evaluate: (env) => getSlice(
+                        targetExpr.evaluate(env),
+                        startExpr ? startExpr.evaluate(env) : null,
+                        stopExpr ? stopExpr.evaluate(env) : null,
+                        stepExpr ? stepExpr.evaluate(env) : null
+                    ),
+                };
             }
 
             // #5: the frontend reads a variable with { type:'variableReference', name }.
@@ -584,6 +612,8 @@ function makeBuilder(output, identity) {
             case 'comparisonChain':
             case 'call':
             case 'builtinCall':
+            case 'index':
+            case 'slice':
                 return new ExpressionStatement(toExpr(block));
 
             default:

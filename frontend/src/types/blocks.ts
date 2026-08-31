@@ -83,6 +83,29 @@ export type TupleExpression = {
   items: Expression[];
 };
 
+// target[index] — Get Item. Generic over List/String/Tuple (the interpreter
+// dispatches on the runtime value, not on how this block was built), so this
+// stays named IndexExpression rather than e.g. ListIndexExpression.
+export type IndexExpression = {
+  id: number;
+  type: "index";
+  target: Expression;
+  index: Expression;
+};
+
+// target[start:stop:step]. start/stop/step are each Expression | null —
+// null means "omitted" (Python's None), matching x[:], x[2:], x[:3],
+// x[::2] etc. directly rather than standing in a fake empty literal for
+// the missing piece.
+export type SliceExpression = {
+  id: number;
+  type: "slice";
+  target: Expression;
+  start: Expression | null;
+  stop: Expression | null;
+  step: Expression | null;
+};
+
 export type DictionaryEntry = {
   id: number;
   key: Expression;
@@ -187,6 +210,8 @@ export type Expression =
   | SetExpression
   | TupleExpression
   | DictionaryExpression
+  | IndexExpression
+  | SliceExpression
   | BuiltinCallExpression
   | CallExpression;
 
@@ -199,6 +224,8 @@ export type ExpressionStatementBlock =
   | SetExpression
   | TupleExpression
   | DictionaryExpression
+  | IndexExpression
+  | SliceExpression
   | BuiltinCallExpression
   | CallExpression;
 
@@ -429,6 +456,20 @@ export type JsonExpression =
     }
   | {
       id: number;
+      type: "index";
+      target: JsonExpression;
+      index: JsonExpression;
+    }
+  | {
+      id: number;
+      type: "slice";
+      target: JsonExpression;
+      start: JsonExpression | null;
+      stop: JsonExpression | null;
+      step: JsonExpression | null;
+    }
+  | {
+      id: number;
       type: "builtinCall";
       name: BuiltinFunctionName;
       args: JsonExpression[];
@@ -481,6 +522,8 @@ export type JsonBlock =
           | "set"
           | "tuple"
           | "dictionary"
+          | "index"
+          | "slice"
           | "builtinCall"
           | "call";
       }

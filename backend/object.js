@@ -23,7 +23,7 @@
 // evaluates the same lazy way as a list/set literal.
 
 const { Expr } = require('./permitivedatatypes');
-const { KeyError, typeName } = require('./errors');
+const { KeyError, IndexError, ValueError, typeName } = require('./errors');
 
 // The mutable (therefore un-hashable) runtime values: a list, a set, a dict.
 // Everything else this language can produce — numbers, strings, booleans, None,
@@ -177,6 +177,103 @@ function iterate(value) {
     throw new TypeError(`'${typeName(value)}' object is not iterable`);
 }
 
+// ---------------------------------------------------------------------------
+// Indexing / slicing — target[index] and target[start:stop:step], for List,
+// String and Tuple only. A dict has no positional subscript here (dict.get()
+// is the sanctioned way to read one by key); indexing anything else raises
+// the same "not subscriptable" TypeError Python gives for e.g. an int.
+// ---------------------------------------------------------------------------
+
+// Python's bool is an int subclass, so True/False are legal indices (True
+// means 1). A boxed PyFloat — even an integer-valued one like 2.0 — is not.
+const isIntLike = (v) => typeof v === 'boolean' || (typeof v === 'number' && Number.isInteger(v));
+
+function requireIntLike(value, message) {
+    if (!isIntLike(value)) throw new TypeError(message);
+    return typeof value === 'boolean' ? (value ? 1 : 0) : value;
+}
+
+function subscriptKind(target) {
+    if (Array.isArray(target)) return 'list';
+    if (typeof target === 'string') return 'string';
+    if (target instanceof PyTuple) return 'tuple';
+    return null;
+}
+
+function subscriptLength(target, kind) {
+    return kind === 'tuple' ? target.items.length : target.length;
+}
+
+// list/tuple share one wording ("indices must be integers or slices"); string
+// has its own, and — unlike the other two — quotes the offending type name.
+// Both are CPython's exact messages.
+function requireIndexValue(value, kind) {
+    const message = kind === 'string'
+        ? `string indices must be integers, not '${typeName(value)}'`
+        : `${kind} indices must be integers or slices, not ${typeName(value)}`;
+    return requireIntLike(value, message);
+}
+
+function requireSliceComponent(value) {
+    return requireIntLike(value, 'slice indices must be integers or None or have an __index__ method');
+}
+
+// target[index]
+function getItem(target, indexValue) {
+    const kind = subscriptKind(target);
+    if (!kind) throw new TypeError(`'${typeName(target)}' object is not subscriptable`);
+
+    const i = requireIndexValue(indexValue, kind);
+    const length = subscriptLength(target, kind);
+    const normalized = i < 0 ? i + length : i;
+    if (normalized < 0 || normalized >= length) {
+        throw new IndexError(`${kind} index out of range`);
+    }
+    return kind === 'tuple' ? target.items[normalized] : target[normalized];
+}
+
+// Python's slice.indices(length): normalizes start/stop (adding length for a
+// negative value, then clamping) according to the sign of step, and returns
+// the source indices to collect. Mirrors CPython's own algorithm exactly,
+// including the negative-step case that makes x[::-1] a reversal.
+function resolveSliceIndices(length, start, stop, step) {
+    step = (step === null || step === undefined) ? 1 : requireSliceComponent(step);
+    if (step === 0) throw new ValueError('slice step cannot be zero');
+
+    const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
+    const normalize = (v) => {
+        v = requireSliceComponent(v);
+        if (v < 0) v += length;
+        return step > 0 ? clamp(v, 0, length) : clamp(v, -1, length - 1);
+    };
+
+    const s = (start === null || start === undefined) ? (step > 0 ? 0 : length - 1) : normalize(start);
+    const e = (stop === null || stop === undefined) ? (step > 0 ? length : -1) : normalize(stop);
+
+    const indices = [];
+    if (step > 0) {
+        for (let i = s; i < e; i += step) indices.push(i);
+    } else {
+        for (let i = s; i > e; i += step) indices.push(i);
+    }
+    return indices;
+}
+
+// target[start:stop:step] — start/stop/step are each a value or null (Python
+// None, meaning "omitted"). Returns the same type as the target: a list slice
+// is a new list, a string slice a new string, a tuple slice a new (never
+// interned — see interpreter.js's tuple case) PyTuple. Never mutates target.
+function getSlice(target, start, stop, step) {
+    const kind = subscriptKind(target);
+    if (!kind) throw new TypeError(`'${typeName(target)}' object is not subscriptable`);
+
+    const indices = resolveSliceIndices(subscriptLength(target, kind), start, stop, step);
+
+    if (kind === 'string') return indices.map((i) => target[i]).join('');
+    if (kind === 'tuple') return new PyTuple(indices.map((i) => target.items[i]));
+    return indices.map((i) => target[i]);
+}
+
 // Python truthiness — what bool(x) and any condition uses. Zero, empty string,
 // empty container and None are false; everything else (including a function) is
 // true.
@@ -263,4 +360,5 @@ module.exports = {
     pyRepr, pyStr, pyNumberStr, serializeValue, isMutable,
     lengthOf, iterate, pyBool,
     isFloat, isNumber, numberValue,
+    getItem, getSlice,
 };

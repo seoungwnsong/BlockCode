@@ -31,9 +31,10 @@ class ValueError extends Error {
     }
 }
 
-// AttributeError / IndexError are defined but not yet raised anywhere: the
-// language has no attribute access and no indexing yet. KeyError, by contrast,
-// IS now raised — a dict rejects a mutable (unhashable) key with it (object.js).
+// AttributeError is defined but not yet raised anywhere: the language has no
+// attribute access. IndexError and KeyError are both raised — out-of-range
+// indexing/slicing raises IndexError (object.js's getItem), and a dict
+// rejects a mutable (unhashable) key, or a missing pop() key, with KeyError.
 class AttributeError extends Error {
     constructor(message) {
         super(message);

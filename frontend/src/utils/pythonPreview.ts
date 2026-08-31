@@ -63,6 +63,18 @@ export function pyExpression(expression: Expression): string {
         .map((entry) => `${pyExpression(entry.key)}: ${pyExpression(entry.value)}`)
         .join(", ")}}`;
 
+    case "index":
+      return `${pyExpression(expression.target)}[${pyExpression(expression.index)}]`;
+
+    case "slice": {
+      const start = expression.start === null ? "" : pyExpression(expression.start);
+      const stop = expression.stop === null ? "" : pyExpression(expression.stop);
+      const bounds = expression.step === null
+        ? `${start}:${stop}`
+        : `${start}:${stop}:${pyExpression(expression.step)}`;
+      return `${pyExpression(expression.target)}[${bounds}]`;
+    }
+
     case "builtinCall": {
       const dotIndex = expression.name.indexOf(".");
 

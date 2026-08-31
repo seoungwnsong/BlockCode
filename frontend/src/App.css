@@ -2231,7 +2231,9 @@ pre {
 .array-block,
 .set-block,
 .dictionary-block,
-.tuple-block {
+.tuple-block,
+.index-block,
+.slice-block {
   max-width: none;
 }
 
@@ -2296,6 +2298,57 @@ pre {
 @media (max-width: 1280px) {
   .collection-content-row,
   .dictionary-content-row {
+    max-width: 760px;
+  }
+}
+
+.access-content-row {
+  row-gap: 7px;
+}
+
+.access-target-slot {
+  min-width: 60px;
+}
+
+.access-index-slot,
+.slice-bound-slot {
+  min-width: 36px;
+}
+
+.slice-content-row > span {
+  font-family: var(--code-font);
+  font-weight: 750;
+}
+
+.slice-bound-filled {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+}
+
+.slice-bound-empty {
+  border: 1px dashed var(--slot-border, rgba(15, 23, 42, 0.28));
+  border-radius: 8px;
+  padding: 2px 8px;
+  min-height: 24px;
+  background: color-mix(in srgb, var(--slot-bg, #f8fafc) 60%, transparent);
+  color: var(--slot-placeholder, #64748b);
+  font-family: var(--code-font);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 0.12s ease, color 0.12s ease, background 0.12s ease;
+}
+
+.slice-bound-empty:hover {
+  border-color: var(--slot-text, #164e63);
+  color: var(--slot-text, #164e63);
+  background: var(--slot-bg, #f8fafc);
+}
+
+@media (max-width: 1280px) {
+  .access-content-row {
     max-width: 760px;
   }
 }
@@ -3800,6 +3853,22 @@ textarea {
   --slot-bg: #ccfbf1;
   --slot-border: #99f6e4;
   --slot-text: #134e4a;
+  --slot-placeholder: #4b5563;
+}
+
+/* Access: Get Item and Slice share the same cyan. */
+.index-template,
+.slice-template {
+  background: var(--cyan-block);
+}
+
+.index-block,
+.slice-block,
+.nested-expression.access-expression {
+  background: var(--cyan-block);
+  --slot-bg: #cffafe;
+  --slot-border: #a5f3fc;
+  --slot-text: #164e63;
   --slot-placeholder: #4b5563;
 }
 

@@ -12,6 +12,7 @@ import type {
   DictionaryExpression,
   Expression,
   ExpressionStatementBlock,
+  IndexExpression,
   JsonBlock,
   JsonCondition,
   JsonExpression,
@@ -20,6 +21,7 @@ import type {
   LiteralExpression,
   LogicExpression,
   SetExpression,
+  SliceExpression,
   TupleExpression,
   UserFunction,
   VariableReferenceExpression,
@@ -252,6 +254,26 @@ export function createTupleExpression(id = makeId()): TupleExpression {
   };
 }
 
+export function createIndexExpression(id = makeId()): IndexExpression {
+  return {
+    id,
+    type: "index",
+    target: createAtomicExpression(),
+    index: createAtomicExpression(),
+  };
+}
+
+export function createSliceExpression(id = makeId()): SliceExpression {
+  return {
+    id,
+    type: "slice",
+    target: createAtomicExpression(),
+    start: null,
+    stop: null,
+    step: null,
+  };
+}
+
 export function createDictionaryExpression(id = makeId()): DictionaryExpression {
   return {
     id,
@@ -336,6 +358,11 @@ export function createBlock(type: BlockType): Block {
     case "dictionary":
       return createDictionaryExpression(id);
 
+    case "index":
+      return createIndexExpression(id);
+
+    case "slice":
+      return createSliceExpression(id);
 
     case "print":
       return {
@@ -420,6 +447,8 @@ export function isExpressionStatement(
     expression.type === "set" ||
     expression.type === "tuple" ||
     expression.type === "dictionary" ||
+    expression.type === "index" ||
+    expression.type === "slice" ||
     expression.type === "builtinCall" ||
     expression.type === "call"
   );
@@ -437,6 +466,8 @@ export function isExpressionStatementBlock(
     block.type === "set" ||
     block.type === "tuple" ||
     block.type === "dictionary" ||
+    block.type === "index" ||
+    block.type === "slice" ||
     block.type === "builtinCall" ||
     block.type === "call"
   );
@@ -482,8 +513,21 @@ export function expressionContainsId(expression: Expression, id: number): boolea
     );
   }
 
+  if (expression.type === "index") {
+    return (
+      expressionContainsId(expression.target, id) ||
+      expressionContainsId(expression.index, id)
+    );
+  }
 
-
+  if (expression.type === "slice") {
+    return (
+      expressionContainsId(expression.target, id) ||
+      [expression.start, expression.stop, expression.step].some(
+        (part) => part !== null && expressionContainsId(part, id)
+      )
+    );
+  }
 
   if (
     expression.type === "call" ||
@@ -546,8 +590,22 @@ export function findExpressionById(
     }
   }
 
+  if (expression.type === "index") {
+    const inTarget = findExpressionById(expression.target, id);
+    if (inTarget) return inTarget;
+    const inIndex = findExpressionById(expression.index, id);
+    if (inIndex) return inIndex;
+  }
 
-
+  if (expression.type === "slice") {
+    const inTarget = findExpressionById(expression.target, id);
+    if (inTarget) return inTarget;
+    for (const part of [expression.start, expression.stop, expression.step]) {
+      if (part === null) continue;
+      const found = findExpressionById(part, id);
+      if (found) return found;
+    }
+  }
 
   if (
     expression.type === "call" ||
@@ -627,8 +685,23 @@ export function updateExpressionById(
     };
   }
 
+  if (expression.type === "index") {
+    return {
+      ...expression,
+      target: updateExpressionById(expression.target, id, updater),
+      index: updateExpressionById(expression.index, id, updater),
+    };
+  }
 
-
+  if (expression.type === "slice") {
+    return {
+      ...expression,
+      target: updateExpressionById(expression.target, id, updater),
+      start: expression.start === null ? null : updateExpressionById(expression.start, id, updater),
+      stop: expression.stop === null ? null : updateExpressionById(expression.stop, id, updater),
+      step: expression.step === null ? null : updateExpressionById(expression.step, id, updater),
+    };
+  }
 
   if (
     expression.type === "call" ||
@@ -1319,8 +1392,23 @@ export function syncExpressionFunctionCalls(
     };
   }
 
+  if (expression.type === "index") {
+    return {
+      ...expression,
+      target: syncExpressionFunctionCalls(expression.target, functionId, nextName, nextParams),
+      index: syncExpressionFunctionCalls(expression.index, functionId, nextName, nextParams),
+    };
+  }
 
-
+  if (expression.type === "slice") {
+    return {
+      ...expression,
+      target: syncExpressionFunctionCalls(expression.target, functionId, nextName, nextParams),
+      start: expression.start === null ? null : syncExpressionFunctionCalls(expression.start, functionId, nextName, nextParams),
+      stop: expression.stop === null ? null : syncExpressionFunctionCalls(expression.stop, functionId, nextName, nextParams),
+      step: expression.step === null ? null : syncExpressionFunctionCalls(expression.step, functionId, nextName, nextParams),
+    };
+  }
 
   if (expression.type === "builtinCall") {
     return {
@@ -1604,8 +1692,23 @@ export function removeFunctionCallsFromExpression(
     };
   }
 
+  if (expression.type === "index") {
+    return {
+      ...expression,
+      target: removeFunctionCallsFromExpression(expression.target, functionId),
+      index: removeFunctionCallsFromExpression(expression.index, functionId),
+    };
+  }
 
-
+  if (expression.type === "slice") {
+    return {
+      ...expression,
+      target: removeFunctionCallsFromExpression(expression.target, functionId),
+      start: expression.start === null ? null : removeFunctionCallsFromExpression(expression.start, functionId),
+      stop: expression.stop === null ? null : removeFunctionCallsFromExpression(expression.stop, functionId),
+      step: expression.step === null ? null : removeFunctionCallsFromExpression(expression.step, functionId),
+    };
+  }
 
   if (
     expression.type === "call" ||
@@ -1814,6 +1917,24 @@ export function serializeExpression(expression: Expression): JsonExpression {
           key: serializeExpression(entry.key),
           value: serializeExpression(entry.value),
         })),
+      };
+
+    case "index":
+      return {
+        id: expression.id,
+        type: "index",
+        target: serializeExpression(expression.target),
+        index: serializeExpression(expression.index),
+      };
+
+    case "slice":
+      return {
+        id: expression.id,
+        type: "slice",
+        target: serializeExpression(expression.target),
+        start: expression.start === null ? null : serializeExpression(expression.start),
+        stop: expression.stop === null ? null : serializeExpression(expression.stop),
+        step: expression.step === null ? null : serializeExpression(expression.step),
       };
 
     case "builtinCall":
@@ -2025,8 +2146,19 @@ export function collectExpressionErrors(
     return;
   }
 
+  if (expression.type === "index") {
+    collectExpressionErrors(expression.target, `${location}.target`, errors);
+    collectExpressionErrors(expression.index, `${location}.index`, errors);
+    return;
+  }
 
-
+  if (expression.type === "slice") {
+    collectExpressionErrors(expression.target, `${location}.target`, errors);
+    if (expression.start !== null) collectExpressionErrors(expression.start, `${location}.start`, errors);
+    if (expression.stop !== null) collectExpressionErrors(expression.stop, `${location}.stop`, errors);
+    if (expression.step !== null) collectExpressionErrors(expression.step, `${location}.step`, errors);
+    return;
+  }
 
   expression.args.forEach((argument, index) =>
     collectExpressionErrors(argument, `${location}.args[${index}]`, errors)

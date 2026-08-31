@@ -35,6 +35,7 @@ import type {
   Expression,
   ExpressionDropTarget,
   ExpressionStatementBlock,
+  IndexExpression,
   ListArea,
   ListDropTarget,
   LogicExpression,
@@ -42,6 +43,7 @@ import type {
   MathOperator,
   PythonErrorType,
   SetExpression,
+  SliceExpression,
   TupleExpression,
   UserFunction,
 } from "./types/blocks";
@@ -477,6 +479,21 @@ function App() {
           (entry) => entry.id !== entryId
         ),
       };
+    });
+  }
+
+  // Toggles one slice bound between omitted (null) and an editable slot.
+  // Used for start/stop (always present, individually optional) and for
+  // step (whose presence also controls whether the block shows the compact
+  // [start:stop] form or the expanded [start:stop:step] form).
+  function setSliceField(
+    id: number,
+    field: "start" | "stop" | "step",
+    value: Expression | null
+  ) {
+    updateCurrentExpression(id, (expression) => {
+      if (expression.type !== "slice") return expression;
+      return { ...expression, [field]: value };
     });
   }
 
@@ -1720,6 +1737,115 @@ function App() {
     );
   }
 
+  function renderIndexContent(expression: IndexExpression) {
+    return (
+      <div className="expression-content-row access-content-row">
+        {renderExpressionSlot(
+          expression.target,
+          "target",
+          "access-target-slot",
+          60,
+          150
+        )}
+        <span className="collection-bracket">[</span>
+        {renderExpressionSlot(
+          expression.index,
+          "index",
+          "access-index-slot",
+          40,
+          100
+        )}
+        <span className="collection-bracket">]</span>
+      </div>
+    );
+  }
+
+  // A single start/stop position inside [start:stop] — either an editable
+  // slot (value !== null) with a way to clear it back to omitted, or a small
+  // placeholder chip (value === null) that creates a fresh slot on click.
+  function renderSliceBound(
+    expression: SliceExpression,
+    field: "start" | "stop",
+    placeholder: string
+  ) {
+    const value = expression[field];
+
+    if (value === null) {
+      return (
+        <button
+          type="button"
+          className="slice-bound-empty"
+          title={`Set ${field}`}
+          onClick={(event) => {
+            event.stopPropagation();
+            setSliceField(expression.id, field, createAtomicExpression());
+          }}
+        >
+          {placeholder}
+        </button>
+      );
+    }
+
+    return (
+      <span className="slice-bound-filled">
+        {renderExpressionSlot(value, placeholder, "slice-bound-slot", 36, 90)}
+        <button
+          type="button"
+          className="remove-chain-button"
+          title={`Clear ${field}`}
+          onClick={(event) => {
+            event.stopPropagation();
+            setSliceField(expression.id, field, null);
+          }}
+        >
+          ×
+        </button>
+      </span>
+    );
+  }
+
+  function renderSliceContent(expression: SliceExpression) {
+    const hasStep = expression.step !== null;
+
+    return (
+      <div className="expression-content-row access-content-row slice-content-row">
+        {renderExpressionSlot(
+          expression.target,
+          "target",
+          "access-target-slot",
+          60,
+          150
+        )}
+        <span className="collection-bracket">[</span>
+        {renderSliceBound(expression, "start", "start")}
+        <span>:</span>
+        {renderSliceBound(expression, "stop", "stop")}
+        {hasStep && (
+          <>
+            <span>:</span>
+            {renderExpressionSlot(expression.step as Expression, "step", "slice-bound-slot", 36, 90)}
+          </>
+        )}
+        <span className="collection-bracket">]</span>
+        <button
+          type="button"
+          className={hasStep ? "remove-chain-button" : "expand-expression-button"}
+          title={hasStep ? "Remove step" : "Add step"}
+          onClick={(event) => {
+            event.stopPropagation();
+            setSliceField(
+              expression.id,
+              "step",
+              hasStep ? null : createAtomicExpression()
+            );
+          }}
+        >
+          {hasStep ? "×" : "+"}
+        </button>
+      </div>
+    );
+  }
+
   function renderCallContent(expression: CallExpression) {
     return (
       <div className="expression-content-row function-call-row">
@@ -1829,9 +1955,11 @@ function App() {
               expression.type === "tuple" ||
               expression.type === "dictionary"
             ? "collection-expression"
-            : expression.type === "builtinCall"
-              ? "builtin-call-expression"
-              : "call-expression";
+            : expression.type === "index" || expression.type === "slice"
+              ? "access-expression"
+              : expression.type === "builtinCall"
+                ? "builtin-call-expression"
+                : "call-expression";
 
     return (
       <div
@@ -1862,6 +1990,8 @@ function App() {
           renderCollectionContent(expression)}
         {expression.type === "dictionary" &&
           renderDictionaryContent(expression)}
+        {expression.type === "index" && renderIndexContent(expression)}
+        {expression.type === "slice" && renderSliceContent(expression)}
         {expression.type === "builtinCall" &&
           renderBuiltinCallContent(expression)}
         {expression.type === "call" && renderCallContent(expression)}
@@ -1955,8 +2085,17 @@ function App() {
           </div>
         )}
 
+        {block.type === "index" && (
+          <div className="block-row expression-enabled-row">
+            {renderIndexContent(block)}
+          </div>
+        )}
 
-
+        {block.type === "slice" && (
+          <div className="block-row expression-enabled-row">
+            {renderSliceContent(block)}
+          </div>
+        )}
 
         {block.type === "print" && (
           <PrintBlockView block={block} renderExpressionSlot={renderExpressionSlot} />
@@ -2058,6 +2197,18 @@ function App() {
           {renderPaletteBlock("tuple", "tuple", "tuple-template")}
           {renderPaletteBlock("set", "set", "set-template")}
           {renderPaletteBlock("dictionary", "dictionary", "dictionary-template")}
+        </>
+      ),
+    },
+    {
+      id: "access",
+      label: "Access",
+      color: "var(--cyan-block)",
+      layout: "stack",
+      content: (
+        <>
+          {renderPaletteBlock("Get Item", "index", "index-template")}
+          {renderPaletteBlock("Slice", "slice", "slice-template")}
         </>
       ),
     },

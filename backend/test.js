@@ -1420,5 +1420,98 @@ t('#42  old single-catch payloads (no `catches` array) still behave as a catch-a
   (r, e) => { noErr(e); eq(r.output, ['caught'], 'legacy shape still matches anything'); });
 
 // ===========================================================================
+// #43  Get Item / Slice — target[index] and target[start:stop:step] for
+// List, String, Tuple. See backend/object.js: getItem, getSlice.
+// ===========================================================================
+const idx = (target, index) => ({ type: 'index', target, index });
+const slc = (target, start = null, stop = null, step = null) => ({ type: 'slice', target, start, stop, step });
+
+t('#43  list positive index', printBI(idx(arr(lit('int', 10), lit('int', 20), lit('int', 30)), lit('int', 1))),
+  (r, e) => { noErr(e); eq(r.output, ['20'], 'x[1]'); });
+
+t('#43  list negative index', printBI(idx(arr(lit('int', 10), lit('int', 20), lit('int', 30)), lit('int', -1))),
+  (r, e) => { noErr(e); eq(r.output, ['30'], 'x[-1]'); });
+
+t('#43  string index', printBI(idx(lit('string', 'hello'), lit('int', 1))),
+  (r, e) => { noErr(e); eq(r.output, ['e'], 'x[1]'); });
+
+t('#43  tuple index', printBI(idx(tup(lit('int', 10), lit('int', 20), lit('int', 30)), lit('int', 2))),
+  (r, e) => { noErr(e); eq(r.output, ['30'], 'x[2]'); });
+
+t('#43  out-of-range positive index is IndexError', printBI(idx(arr(lit('int', 1), lit('int', 2)), lit('int', 5))),
+  (r, e) => { if (!e.length || e[0].errorType !== 'IndexError') throw new Error('expected IndexError'); });
+
+t('#43  out-of-range negative index is IndexError', printBI(idx(arr(lit('int', 1), lit('int', 2)), lit('int', -5))),
+  (r, e) => { if (!e.length || e[0].errorType !== 'IndexError') throw new Error('expected IndexError'); });
+
+t('#43  non-integer index is TypeError', printBI(idx(arr(lit('int', 1), lit('int', 2)), lit('string', 'a'))),
+  (r, e) => { if (!e.length || e[0].errorType !== 'TypeError') throw new Error('expected TypeError'); });
+
+t('#43  indexing a non-subscriptable value is TypeError', printBI(idx(lit('int', 5), lit('int', 0))),
+  (r, e) => { if (!e.length || e[0].errorType !== 'TypeError') throw new Error('expected TypeError'); });
+
+t('#43  list[start:stop]', printBI(slc(arr(lit('int', 1), lit('int', 2), lit('int', 3), lit('int', 4)), lit('int', 1), lit('int', 3))),
+  (r, e) => { noErr(e); eq(r.output, ['[2, 3]'], 'x[1:3]'); });
+
+t('#43  string[start:stop]', printBI(slc(lit('string', 'hello'), lit('int', 1), lit('int', 4))),
+  (r, e) => { noErr(e); eq(r.output, ['ell'], 'x[1:4]'); });
+
+t('#43  tuple[start:stop] stays a tuple', printBI(slc(tup(lit('int', 1), lit('int', 2), lit('int', 3), lit('int', 4)), lit('int', 1), lit('int', 3))),
+  (r, e) => { noErr(e); eq(r.output, ['(2, 3)'], 'x[1:3] is a tuple, not a list'); });
+
+t('#43  [:stop]', printBI(slc(arr(lit('int', 1), lit('int', 2), lit('int', 3)), null, lit('int', 2))),
+  (r, e) => { noErr(e); eq(r.output, ['[1, 2]'], 'x[:2]'); });
+
+t('#43  [start:]', printBI(slc(arr(lit('int', 1), lit('int', 2), lit('int', 3)), lit('int', 1), null)),
+  (r, e) => { noErr(e); eq(r.output, ['[2, 3]'], 'x[1:]'); });
+
+t('#43  [:] is a full copy', printBI(slc(arr(lit('int', 1), lit('int', 2), lit('int', 3)))),
+  (r, e) => { noErr(e); eq(r.output, ['[1, 2, 3]'], 'x[:]'); });
+
+t('#43  [start:stop:step]', printBI(slc(arr(lit('int', 0), lit('int', 1), lit('int', 2), lit('int', 3), lit('int', 4), lit('int', 5)), lit('int', 1), lit('int', 8), lit('int', 2))),
+  (r, e) => { noErr(e); eq(r.output, ['[1, 3, 5]'], 'x[1:8:2]'); });
+
+t('#43  [::2]', printBI(slc(arr(lit('int', 0), lit('int', 1), lit('int', 2), lit('int', 3), lit('int', 4), lit('int', 5)), null, null, lit('int', 2))),
+  (r, e) => { noErr(e); eq(r.output, ['[0, 2, 4]'], 'x[::2]'); });
+
+t('#43  [::-1] reverses', printBI(slc(arr(lit('int', 0), lit('int', 1), lit('int', 2), lit('int', 3), lit('int', 4), lit('int', 5)), null, null, lit('int', -1))),
+  (r, e) => { noErr(e); eq(r.output, ['[5, 4, 3, 2, 1, 0]'], 'x[::-1]'); });
+
+t('#43  zero step is ValueError', printBI(slc(arr(lit('int', 1), lit('int', 2)), null, null, lit('int', 0))),
+  (r, e) => { if (!e.length || e[0].errorType !== 'ValueError') throw new Error('expected ValueError'); });
+
+t('#43  empty list slice', printBI(slc(arr())),
+  (r, e) => { noErr(e); eq(r.output, ['[]'], 'x[:] of []'); });
+
+t('#43  empty string slice', printBI(slc(lit('string', ''))),
+  (r, e) => { noErr(e); eq(r.output, [''], 'x[:] of ""'); });
+
+t('#43  slicing does not mutate the original',
+  { blocks: [
+      { id: 1, type: 'variable', name: 'x', value: arr(lit('int', 1), lit('int', 2), lit('int', 3)) },
+      { id: 2, type: 'variable', name: 'y', value: slc(ref('x'), lit('int', 0), lit('int', 2)) },
+      { id: 3, type: 'print', value: ref('x') },
+      { id: 4, type: 'print', value: ref('y') },
+    ] },
+  (r, e) => { noErr(e); eq(r.output, ['[1, 2, 3]', '[1, 2]'], 'x unchanged, y is the slice'); });
+
+t('#43  indexing a slice result', printBI(idx(slc(arr(lit('int', 1), lit('int', 2), lit('int', 3), lit('int', 4)), lit('int', 1)), lit('int', 0))),
+  (r, e) => { noErr(e); eq(r.output, ['2'], 'x[1:][0]'); });
+
+t('#43  slicing an already-sliced result', printBI(slc(slc(arr(lit('int', 1), lit('int', 2), lit('int', 3), lit('int', 4), lit('int', 5)), lit('int', 1)), lit('int', 1))),
+  (r, e) => { noErr(e); eq(r.output, ['[3, 4, 5]'], 'x[1:][1:]'); });
+
+t('#43  len(x[1:4])', printBI(bi('len', slc(lit('string', ' hello '), lit('int', 1), lit('int', 7)))),
+  (r, e) => { noErr(e); eq(r.output, ['6'], 'len of a string slice'); });
+
+t('#43  .index() and Get Item are unrelated: x.index(2) vs x[2]',
+  { blocks: [
+      { id: 1, type: 'variable', name: 'x', value: arr(lit('int', 10), lit('int', 20), lit('int', 30)) },
+      { id: 2, type: 'print', value: bi('list.index', ref('x'), lit('int', 20)) },
+      { id: 3, type: 'print', value: idx(ref('x'), lit('int', 2)) },
+    ] },
+  (r, e) => { noErr(e); eq(r.output, ['1', '30'], 'index() finds position 1; x[2] reads value 30 — different operations'); });
+
+// ===========================================================================
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
