@@ -81,6 +81,33 @@ function requireOrderable(op, left, right) {
     }
 }
 
+// The single source of truth for what a comparison operator MEANS, shared by
+// BinaryOperator (a lone comparison) and Compare (a chain). Kept at module
+// scope so it is defined ONCE rather than rebuilt on every evaluate — Compare
+// used to allocate this whole dispatch table (six closures + an object) on
+// every comparison it ran, including once per loop iteration.
+function compareOp(op, a, b) {
+    switch (op) {
+        case "==": return pyEquals(a, b);
+        case "!=": return !pyEquals(a, b);
+        case "<":  return orderValue(a) <  orderValue(b);
+        case ">":  return orderValue(a) >  orderValue(b);
+        case "<=": return orderValue(a) <= orderValue(b);
+        case ">=": return orderValue(a) >= orderValue(b);
+        default:   throw new Error(`Unknown operator: ${op}`);
+    }
+}
+
+// Hoisted out of BinaryOperator.evaluate so they are not re-created per
+// evaluation. `strRepeat` returns null when `count` is not a Python int
+// multiplier (a float or non-number), letting the caller raise TypeError.
+const isString = (v) => typeof v === 'string';
+function strRepeat(s, count) {
+    if (!isNumber(count) || isFloat(count)) return null;
+    const n = numberValue(count);
+    return Number.isInteger(n) ? s.repeat(Math.max(0, n)) : null;
+}
+
 class BinaryOperator extends Expr {
     constructor(left, op, right) {
         super();
@@ -103,8 +130,6 @@ class BinaryOperator extends Expr {
 
         const right = this.right.evaluate(env);
 
-        const isString = (v) => typeof v === 'string';
-
         switch (this.op) {
             case "+": {
                 const leftIsStr  = isString(left);
@@ -126,12 +151,7 @@ class BinaryOperator extends Expr {
             case "*": {
                 // Python multiplies a str by an INT to repeat it (a bool counts,
                 // True == 1). A float multiplier is a TypeError, as is any other
-                // str combination.
-                const strRepeat = (s, count) => {
-                    if (!isNumber(count) || isFloat(count)) return null;
-                    const n = numberValue(count);
-                    return Number.isInteger(n) ? s.repeat(Math.max(0, n)) : null;
-                };
+                // str combination. strRepeat (module scope) enforces the int rule.
                 if (typeof left === 'string' || typeof right === 'string') {
                     const repeated = typeof left === 'string'
                         ? strRepeat(left, right)
@@ -201,19 +221,10 @@ class Compare extends Expr {
         let current = this.left.evaluate(env);
         for (const [op, rightExpr] of this.comparisons) {
             const right = rightExpr.evaluate(env);
-            const ops = {
-                "==": (a, b) => pyEquals(a, b),
-                "!=": (a, b) => !pyEquals(a, b),
-                "<":  (a, b) => orderValue(a) <  orderValue(b),
-                ">":  (a, b) => orderValue(a) >  orderValue(b),
-                "<=": (a, b) => orderValue(a) <= orderValue(b),
-                ">=": (a, b) => orderValue(a) >= orderValue(b),
-            };
-            if (!(op in ops)) throw new Error(`Unknown operator: ${op}`);
             // B4: same str-vs-number guard as BinaryOperator, so the structured
             // path and the parser path agree on what raises.
             if (op !== '==' && op !== '!=') requireOrderable(op, current, right);
-            if (!ops[op](current, right)) return false;
+            if (!compareOp(op, current, right)) return false;
             current = right;
         }
         return true;

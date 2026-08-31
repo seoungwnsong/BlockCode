@@ -22,8 +22,9 @@ class UserFunction {
 
     call(argValues) {
         if (argValues.length !== this.params.length) {
-            // B4: Python raises TypeError for an arity mismatch, not a bare Error.
-            throw new TypeError(`Function ${this.name} expects ${this.params.length} argument(s), got ${argValues.length}`);
+            // B4: Python raises TypeError for an arity mismatch, not a bare Error,
+            // and words the two directions differently — see arityError.
+            throw new TypeError(this.arityError(argValues.length));
         }
 
         // Fresh local scope, seeded with a snapshot of the global environment.
@@ -40,12 +41,12 @@ class UserFunction {
         // a plain `x = ...` in a function is local unless declared `global x`
         // (which this language has no block for). Params bind last, so an argument
         // named like a global wins inside the body.
+        // Object.assign copies the globals' own enumerable keys straight across
+        // (both envs are null-proto, so there is nothing else to copy) without
+        // the intermediate key array Object.keys(...) would allocate on every
+        // call — which matters under recursion, where this runs per stack frame.
         const localEnv = Object.create(null);   // #20
-        if (this.globalEnv) {
-            for (const key of Object.keys(this.globalEnv)) {
-                localEnv[key] = this.globalEnv[key];
-            }
-        }
+        if (this.globalEnv) Object.assign(localEnv, this.globalEnv);
         for (let i = 0; i < this.params.length; i++) {
             localEnv[this.params[i]] = argValues[i];
         }
@@ -58,6 +59,39 @@ class UserFunction {
         }
         return undefined;   // function with no explicit return
     }
+
+    // Reproduces CPython's two distinct arity messages for a call to this
+    // function with `nArgs` positional arguments (which is known NOT to equal
+    // the parameter count). Python distinguishes:
+    //   too few  ->  f() missing 1 required positional argument: 'x'
+    //                f() missing 2 required positional arguments: 'x' and 'y'
+    //   too many ->  f() takes 1 positional argument but 2 were given
+    //                f() takes 0 positional arguments but 1 was given
+    // Note the singular/plural on "argument(s)" and the was/were on the given
+    // count — CPython gets both right, so we do too.
+    arityError(nArgs) {
+        const nParams = this.params.length;
+
+        if (nArgs < nParams) {
+            // The unfilled parameters are the trailing ones the call never reached.
+            const missing = this.params.slice(nArgs);
+            const noun = missing.length === 1 ? 'argument' : 'arguments';
+            return `${this.name}() missing ${missing.length} required positional ${noun}: ${quotedNameList(missing)}`;
+        }
+
+        const noun = nParams === 1 ? 'argument' : 'arguments';
+        const verb = nArgs === 1 ? 'was' : 'were';
+        return `${this.name}() takes ${nParams} positional ${noun} but ${nArgs} ${verb} given`;
+    }
+}
+
+// Joins parameter names the way CPython lists them in a "missing argument"
+// message: 'x'  |  'x' and 'y'  |  'a', 'b', and 'c' (Oxford comma at 3+).
+function quotedNameList(names) {
+    const quoted = names.map((n) => `'${n}'`);
+    if (quoted.length === 1) return quoted[0];
+    if (quoted.length === 2) return `${quoted[0]} and ${quoted[1]}`;
+    return `${quoted.slice(0, -1).join(', ')}, and ${quoted[quoted.length - 1]}`;
 }
 
 // `return <expr>` — evaluates its value, then unwinds via ReturnSignal.
