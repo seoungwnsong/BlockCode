@@ -48,6 +48,7 @@ import type {
   MathOperator,
   PythonErrorType,
   SetExpression,
+  SetItemBlock,
   SliceExpression,
   TupleExpression,
   UserFunction,
@@ -2115,6 +2116,21 @@ function App() {
     );
   }
 
+  // Item assignment: target[index] = value. Works for a list (by position) or
+  // a dict (by key); a tuple/string target errors at run time, matching Python.
+  function renderSetItemContent(block: SetItemBlock) {
+    return (
+      <div className="expression-content-row access-content-row">
+        {renderExpressionSlot(block.target, "target", "access-target-slot", 60, 150)}
+        <span className="collection-bracket">[</span>
+        {renderExpressionSlot(block.index, "index", "access-index-slot", 40, 100)}
+        <span className="collection-bracket">]</span>
+        <span className="assignment-equals">=</span>
+        {renderExpressionSlot(block.value, "value", "setitem-value-slot", 60, 180)}
+      </div>
+    );
+  }
+
   // A single start/stop position inside [start:stop] — either an editable
   // slot (value !== null) with a way to clear it back to omitted, or a small
   // placeholder chip (value === null) that creates a fresh slot on click.
@@ -2407,6 +2423,12 @@ function App() {
           />
         )}
 
+        {block.type === "setItem" && (
+          <div className="block-row expression-enabled-row">
+            {renderSetItemContent(block)}
+          </div>
+        )}
+
         {block.type === "parallelAssign" && (
           <ParallelAssignBlockView
             block={block}
@@ -2575,6 +2597,7 @@ function App() {
         <>
           {renderPaletteBlock("Get Item", "index", "index-template")}
           {renderPaletteBlock("Slice", "slice", "slice-template")}
+          {renderPaletteBlock("Set Item", "setItem", "index-template")}
         </>
       ),
     },

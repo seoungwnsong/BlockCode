@@ -21,6 +21,7 @@ import type {
   LiteralExpression,
   LogicExpression,
   SetExpression,
+  SetItemBlock,
   SliceExpression,
   TupleExpression,
   UserFunction,
@@ -274,6 +275,16 @@ export function createSliceExpression(id = makeId()): SliceExpression {
   };
 }
 
+export function createSetItemBlock(id = makeId()): SetItemBlock {
+  return {
+    id,
+    type: "setItem",
+    target: createAtomicExpression(),
+    index: createAtomicExpression(),
+    value: createAtomicExpression(),
+  };
+}
+
 export function createDictionaryExpression(id = makeId()): DictionaryExpression {
   return {
     id,
@@ -363,6 +374,9 @@ export function createBlock(type: BlockType): Block {
 
     case "slice":
       return createSliceExpression(id);
+
+    case "setItem":
+      return createSetItemBlock(id);
 
     case "print":
       return {
@@ -730,6 +744,14 @@ export function findExpressionInBlock(block: Block, id: number): Expression | nu
     case "return":
       return findExpressionById(block.value, id);
 
+    case "setItem": {
+      return (
+        findExpressionById(block.target, id) ??
+        findExpressionById(block.index, id) ??
+        findExpressionById(block.value, id)
+      );
+    }
+
     case "parallelAssign":
       for (const value of block.values) {
         const found = findExpressionById(value, id);
@@ -814,6 +836,14 @@ export function updateExpressionsInBlock(
     case "variable":
       return {
         ...block,
+        value: updateExpressionById(block.value, id, updater),
+      };
+
+    case "setItem":
+      return {
+        ...block,
+        target: updateExpressionById(block.target, id, updater),
+        index: updateExpressionById(block.index, id, updater),
         value: updateExpressionById(block.value, id, updater),
       };
 
@@ -1482,6 +1512,14 @@ export function syncFunctionCalls(
           ),
         };
 
+      case "setItem":
+        return {
+          ...block,
+          target: syncExpressionFunctionCalls(block.target, functionId, nextName, nextParams),
+          index: syncExpressionFunctionCalls(block.index, functionId, nextName, nextParams),
+          value: syncExpressionFunctionCalls(block.value, functionId, nextName, nextParams),
+        };
+
       case "parallelAssign":
         return {
           ...block,
@@ -1754,6 +1792,14 @@ export function removeFunctionCalls(
             ),
           };
 
+        case "setItem":
+          return {
+            ...block,
+            target: removeFunctionCallsFromExpression(block.target, functionId),
+            index: removeFunctionCallsFromExpression(block.index, functionId),
+            value: removeFunctionCallsFromExpression(block.value, functionId),
+          };
+
         case "parallelAssign":
           return {
             ...block,
@@ -2006,6 +2052,15 @@ export function serializeBlock(block: Block): JsonBlock {
         value: serializeExpression(block.value),
       };
 
+    case "setItem":
+      return {
+        id: block.id,
+        type: "setItem",
+        target: serializeExpression(block.target),
+        index: serializeExpression(block.index),
+        value: serializeExpression(block.value),
+      };
+
     case "parallelAssign":
       return {
         id: block.id,
@@ -2215,6 +2270,15 @@ export function cloneBlock(block: Block, regenerateIds: boolean): Block {
     case "variable":
       return { ...block, id, value: cloneExpression(block.value, regenerateIds) };
 
+    case "setItem":
+      return {
+        ...block,
+        id,
+        target: cloneExpression(block.target, regenerateIds),
+        index: cloneExpression(block.index, regenerateIds),
+        value: cloneExpression(block.value, regenerateIds),
+      };
+
     case "parallelAssign":
       return {
         ...block,
@@ -2397,6 +2461,12 @@ export function collectBlockErrors(
       if (block.name.trim() === "") {
         errors.push(`${location}.name: Variable name cannot be empty.`);
       }
+      collectExpressionErrors(block.value, `${location}.value`, errors);
+      return;
+
+    case "setItem":
+      collectExpressionErrors(block.target, `${location}.target`, errors);
+      collectExpressionErrors(block.index, `${location}.index`, errors);
       collectExpressionErrors(block.value, `${location}.value`, errors);
       return;
 

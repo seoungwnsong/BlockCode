@@ -1512,6 +1512,150 @@ t('#43  .index() and Get Item are unrelated: x.index(2) vs x[2]',
     ] },
   (r, e) => { noErr(e); eq(r.output, ['1', '30'], 'index() finds position 1; x[2] reads value 30 — different operations'); });
 
+// --- F-02: dict[key] is a KEY lookup, matching Python (getItem, object.js) ---
+t('#43  dict[key] returns the value',
+  printBI(idx(dict(entry(lit('string', 'a'), lit('int', 1)), entry(lit('string', 'b'), lit('int', 2))), lit('string', 'b'))),
+  (r, e) => { noErr(e); eq(r.output, ['2'], 'd["b"]'); });
+
+t('#43  dict[key] with an integer key',
+  printBI(idx(dict(entry(lit('int', 7), lit('string', 'seven'))), lit('int', 7))),
+  (r, e) => { noErr(e); eq(r.output, ['seven'], 'd[7]'); });
+
+t('#43  dict[missing] is KeyError, not IndexError',
+  printBI(idx(dict(entry(lit('string', 'a'), lit('int', 1))), lit('string', 'z'))),
+  (r, e) => { if (!e.length || e[0].errorType !== 'KeyError') throw new Error('expected KeyError'); });
+
+t('#43  dict[mutable key] is unhashable TypeError',
+  printBI(idx(dict(entry(lit('string', 'a'), lit('int', 1))), arr(lit('int', 1)))),
+  (r, e) => { if (!e.length || e[0].errorType !== 'TypeError') throw new Error('expected TypeError'); });
+
+t('#43  slicing a dict is a TypeError (unhashable slice)',
+  printBI(slc(dict(entry(lit('string', 'a'), lit('int', 1))), lit('int', 0), lit('int', 1))),
+  (r, e) => { if (!e.length || e[0].errorType !== 'TypeError') throw new Error('expected TypeError'); });
+
+// --- F-04: a full tuple slice returns the SAME object, as CPython does ------
+t('#43  tuple full slice t[:] is t (same object)',
+  { blocks: [
+      { id: 1, type: 'variable', name: 't', value: tup(lit('int', 1), lit('int', 2), lit('int', 3)) },
+      { id: 2, type: 'print', value: isOp(ref('t'), slc(ref('t'))) },
+    ] },
+  (r, e) => { noErr(e); eq(r.output, ['True'], 't[:] is t'); });
+
+t('#43  tuple whole-range slice t[0:3] is t',
+  { blocks: [
+      { id: 1, type: 'variable', name: 't', value: tup(lit('int', 1), lit('int', 2), lit('int', 3)) },
+      { id: 2, type: 'print', value: isOp(ref('t'), slc(ref('t'), lit('int', 0), lit('int', 3))) },
+    ] },
+  (r, e) => { noErr(e); eq(r.output, ['True'], 't[0:3] is t'); });
+
+t('#43  partial tuple slice is a new object (t[0:2] is not t)',
+  { blocks: [
+      { id: 1, type: 'variable', name: 't', value: tup(lit('int', 1), lit('int', 2), lit('int', 3)) },
+      { id: 2, type: 'print', value: isOp(ref('t'), slc(ref('t'), lit('int', 0), lit('int', 2))) },
+    ] },
+  (r, e) => { noErr(e); eq(r.output, ['False'], 't[0:2] is not t'); });
+
+t('#43  reversed tuple slice is a new object (t[::-1] is not t)',
+  { blocks: [
+      { id: 1, type: 'variable', name: 't', value: tup(lit('int', 1), lit('int', 2), lit('int', 3)) },
+      { id: 2, type: 'print', value: isOp(ref('t'), slc(ref('t'), null, null, lit('int', -1))) },
+    ] },
+  (r, e) => { noErr(e); eq(r.output, ['False'], 't[::-1] is not t'); });
+
+t('#43  a list full slice x[:] is still a copy (not the same object)',
+  { blocks: [
+      { id: 1, type: 'variable', name: 'x', value: arr(lit('int', 1), lit('int', 2)) },
+      { id: 2, type: 'print', value: isOp(ref('x'), slc(ref('x'))) },
+    ] },
+  (r, e) => { noErr(e); eq(r.output, ['False'], 'lists always copy on slice'); });
+
+// ===========================================================================
+// #44  Item assignment — target[index] = value for list (by position) and
+// dict (by key). See backend/object.js: setItem.
+// ===========================================================================
+const setItem = (target, index, value) => ({ type: 'setItem', target, index, value });
+
+t('#44  list item assignment by position',
+  { blocks: [
+      { id: 1, type: 'variable', name: 'x', value: arr(lit('int', 1), lit('int', 2), lit('int', 3)) },
+      setItem(ref('x'), lit('int', 1), lit('int', 99)),
+      { id: 3, type: 'print', value: ref('x') },
+    ] },
+  (r, e) => { noErr(e); eq(r.output, ['[1, 99, 3]'], 'x[1] = 99'); });
+
+t('#44  list item assignment with a negative index',
+  { blocks: [
+      { id: 1, type: 'variable', name: 'x', value: arr(lit('int', 1), lit('int', 2), lit('int', 3)) },
+      setItem(ref('x'), lit('int', -1), lit('int', 99)),
+      { id: 3, type: 'print', value: ref('x') },
+    ] },
+  (r, e) => { noErr(e); eq(r.output, ['[1, 2, 99]'], 'x[-1] = 99'); });
+
+t('#44  out-of-range list assignment is IndexError',
+  { blocks: [
+      { id: 1, type: 'variable', name: 'x', value: arr(lit('int', 1)) },
+      setItem(ref('x'), lit('int', 5), lit('int', 9)),
+    ] },
+  (r, e) => { if (!e.length || e[0].errorType !== 'IndexError') throw new Error('expected IndexError'); });
+
+t('#44  non-integer list index is TypeError',
+  { blocks: [
+      { id: 1, type: 'variable', name: 'x', value: arr(lit('int', 1)) },
+      setItem(ref('x'), lit('float', 0), lit('int', 9)),
+    ] },
+  (r, e) => { if (!e.length || e[0].errorType !== 'TypeError') throw new Error('expected TypeError'); });
+
+t('#44  dict item assignment adds a new key',
+  { blocks: [
+      { id: 1, type: 'variable', name: 'd', value: dict(entry(lit('string', 'a'), lit('int', 1))) },
+      setItem(ref('d'), lit('string', 'b'), lit('int', 2)),
+      { id: 3, type: 'print', value: ref('d') },
+    ] },
+  (r, e) => { noErr(e); eq(r.output, ['{"a": 1, "b": 2}'], 'd["b"] = 2'); });
+
+t('#44  dict item assignment overwrites an existing key',
+  { blocks: [
+      { id: 1, type: 'variable', name: 'd', value: dict(entry(lit('string', 'a'), lit('int', 1))) },
+      setItem(ref('d'), lit('string', 'a'), lit('int', 9)),
+      { id: 3, type: 'print', value: ref('d') },
+    ] },
+  (r, e) => { noErr(e); eq(r.output, ['{"a": 9}'], 'd["a"] = 9'); });
+
+t('#44  dict assignment with a mutable key is unhashable TypeError',
+  { blocks: [
+      { id: 1, type: 'variable', name: 'd', value: dict(entry(lit('string', 'a'), lit('int', 1))) },
+      setItem(ref('d'), arr(lit('int', 1)), lit('int', 9)),
+    ] },
+  (r, e) => { if (!e.length || e[0].errorType !== 'TypeError') throw new Error('expected TypeError'); });
+
+t('#44  tuple does not support item assignment',
+  { blocks: [
+      { id: 1, type: 'variable', name: 't', value: tup(lit('int', 1), lit('int', 2)) },
+      setItem(ref('t'), lit('int', 0), lit('int', 9)),
+    ] },
+  (r, e) => { if (!e.length || e[0].errorType !== 'TypeError') throw new Error('expected TypeError'); });
+
+t('#44  string does not support item assignment',
+  { blocks: [ setItem(lit('string', 'abc'), lit('int', 0), lit('string', 'z')) ] },
+  (r, e) => { if (!e.length || e[0].errorType !== 'TypeError') throw new Error('expected TypeError'); });
+
+t('#44  nested list item assignment x[0][1] = 99',
+  { blocks: [
+      { id: 1, type: 'variable', name: 'x', value: arr(arr(lit('int', 1), lit('int', 2)), arr(lit('int', 3), lit('int', 4))) },
+      setItem(idx(ref('x'), lit('int', 0)), lit('int', 1), lit('int', 99)),
+      { id: 3, type: 'print', value: ref('x') },
+    ] },
+  (r, e) => { noErr(e); eq(r.output, ['[[1, 99], [3, 4]]'], 'x[0][1] = 99'); });
+
+t('#44  assignment through an alias mutates the shared list',
+  { blocks: [
+      { id: 1, type: 'variable', name: 'x', value: arr(lit('int', 1), lit('int', 2)) },
+      { id: 2, type: 'variable', name: 'y', value: ref('x') },
+      setItem(ref('y'), lit('int', 0), lit('int', 9)),
+      { id: 4, type: 'print', value: ref('x') },
+    ] },
+  (r, e) => { noErr(e); eq(r.output, ['[9, 2]'], 'y[0] = 9 also changes x'); });
+
 // ===========================================================================
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

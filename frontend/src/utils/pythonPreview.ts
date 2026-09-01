@@ -115,6 +115,11 @@ export function pyBlock(block: Block, indent: number): string[] {
     case "variable":
       return [`${pad}${block.name} = ${pyExpression(block.value)}`];
 
+    case "setItem":
+      return [
+        `${pad}${pyExpression(block.target)}[${pyExpression(block.index)}] = ${pyExpression(block.value)}`,
+      ];
+
     case "parallelAssign":
       return [
         `${pad}${block.targets.join(", ")} = ${block.values.map(pyExpression).join(", ")}`,

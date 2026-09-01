@@ -3,7 +3,7 @@ const {
 } = require('./flowstatement');
 const { BinaryOperator, Compare, BoolOp } = require('./operations');
 const { num, Booleans, Strings } = require('./permitivedatatypes');
-const { PyList, PySet, PyDict, PyTuple, PyFloat, serializeValue, pyBool, getItem, getSlice } = require('./object');   // composite types
+const { PyList, PySet, PyDict, PyTuple, PyFloat, serializeValue, pyBool, getItem, getSlice, setItem } = require('./object');   // composite types
 const { isBuiltin, callBuiltin } = require('./builtins');        // len/type/int/id/…
 const { createIdentityManager, isScalar, scalarKey } = require('./identity');   // runtime `is` / id()
 const { parse } = require('./parser');
@@ -596,6 +596,26 @@ function makeBuilder(output, identity) {
                         body: pick(c.children, c.body).map(toStmt),
                     }))
                 );
+            }
+
+            // Item assignment: { type:'setItem', target, index, value } ->
+            // target[index] = value. Only list (by position) and dict (by key)
+            // accept it; tuple/str are immutable — setItem (object.js) enforces
+            // that and does the negative-index / bounds / hashable checks.
+            // Python evaluates the right-hand VALUE first, then the target, then
+            // the index (STORE_SUBSCR bytecode order), so mirror that here.
+            case 'setItem': {
+                const targetExpr = toExpr(block.target);
+                const indexExpr = toExpr(block.index);
+                const valueExpr = toExpr(block.value);
+                return {
+                    evaluate: (env) => {
+                        const value = valueExpr.evaluate(env);
+                        const target = targetExpr.evaluate(env);
+                        const index = indexExpr.evaluate(env);
+                        setItem(target, index, value);
+                    },
+                };
             }
 
             // #11

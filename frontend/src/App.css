@@ -2316,6 +2316,16 @@ pre {
   min-width: 36px;
 }
 
+.assignment-equals {
+  font-family: var(--code-font);
+  font-weight: 750;
+  margin: 0 2px;
+}
+
+.setitem-value-slot {
+  min-width: 60px;
+}
+
 .slice-content-row > span {
   font-family: var(--code-font);
   font-weight: 750;

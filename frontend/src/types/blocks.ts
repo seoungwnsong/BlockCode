@@ -283,6 +283,18 @@ export type VariableBlock = {
   value: Expression;
 };
 
+// target[index] = value — in-place item assignment. Works for a list (by
+// position) and a dict (by key); tuple/str are immutable and error at runtime.
+// All three slots are Expressions, so the target may itself be a nested
+// subscript (x[0][1] = v) and the index/value any value block.
+export type SetItemBlock = {
+  id: number;
+  type: "setItem";
+  target: Expression;
+  index: Expression;
+  value: Expression;
+};
+
 export type PrintBlock = {
   id: number;
   type: "print";
@@ -313,6 +325,7 @@ export type ForBlock = {
 
 export type Block =
   | VariableBlock
+  | SetItemBlock
   | ParallelAssignmentBlock
   | ExpressionStatementBlock
   | PrintBlock
@@ -502,6 +515,13 @@ export type JsonBlock =
       id: number;
       type: "variable";
       name: string;
+      value: JsonExpression;
+    }
+  | {
+      id: number;
+      type: "setItem";
+      target: JsonExpression;
+      index: JsonExpression;
       value: JsonExpression;
     }
   | {

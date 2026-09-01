@@ -220,6 +220,17 @@ function requireSliceComponent(value) {
 
 // target[index]
 function getItem(target, indexValue) {
+    // dict[key] is a KEY lookup, not a positional index — Python's primary way
+    // to read a dict, so it belongs here rather than only in dict.get(). A
+    // mutable (unhashable) key is a TypeError; a key that is simply absent is a
+    // KeyError repr'd the way CPython prints it — never the positional
+    // IndexError the sequence path below would raise.
+    if (target instanceof Map) {
+        if (isMutable(indexValue)) throw new TypeError(`unhashable type: '${typeName(indexValue)}'`);
+        if (target.has(indexValue)) return target.get(indexValue);
+        throw new KeyError(pyRepr(indexValue));
+    }
+
     const kind = subscriptKind(target);
     if (!kind) throw new TypeError(`'${typeName(target)}' object is not subscriptable`);
 
@@ -264,14 +275,65 @@ function resolveSliceIndices(length, start, stop, step) {
 // is a new list, a string slice a new string, a tuple slice a new (never
 // interned — see interpreter.js's tuple case) PyTuple. Never mutates target.
 function getSlice(target, start, stop, step) {
+    // A dict cannot be sliced: CPython reports the slice object itself as an
+    // unhashable key ("unhashable type: 'slice'"), not "not subscriptable".
+    if (target instanceof Map) throw new TypeError(`unhashable type: 'slice'`);
+
     const kind = subscriptKind(target);
     if (!kind) throw new TypeError(`'${typeName(target)}' object is not subscriptable`);
 
-    const indices = resolveSliceIndices(subscriptLength(target, kind), start, stop, step);
+    const length = subscriptLength(target, kind);
+    const indices = resolveSliceIndices(length, start, stop, step);
 
     if (kind === 'string') return indices.map((i) => target[i]).join('');
-    if (kind === 'tuple') return new PyTuple(indices.map((i) => target.items[i]));
+    if (kind === 'tuple') {
+        // CPython returns the SAME tuple object for a full forward slice
+        // (t[:], t[0:len], t[::1]): a tuple is immutable, so copying is
+        // pointless and `t[:] is t` holds. A partial or reversed slice still
+        // builds a fresh tuple. The identity test (indices are 0,1,…,len-1)
+        // captures exactly the whole-in-order cases CPython optimizes — a
+        // list, by contrast, always copies, so `x[:] is x` stays False there.
+        if (indices.length === length && indices.every((i, k) => i === k)) return target;
+        return new PyTuple(indices.map((i) => target.items[i]));
+    }
     return indices.map((i) => target[i]);
+}
+
+// target[index] = value — in-place item assignment. Only the MUTABLE
+// subscriptables accept it: a list by position, a dict by key. A tuple and a
+// string are immutable, so Python raises "does not support item assignment"
+// for them (a distinct message from "not subscriptable", which is reserved for
+// values you can't index at all). The target is the live runtime object — a
+// variable read hands back the same array/Map stored in env — so mutating it
+// here persists, and nested targets (x[0][1] = v) work because getItem returns
+// the real inner reference.
+function setItem(target, indexValue, value) {
+    if (Array.isArray(target)) {
+        // Same index rules as a read: bool ok, float rejected, non-int TypeError.
+        const i = requireIndexValue(indexValue, 'list');
+        const normalized = i < 0 ? i + target.length : i;
+        if (normalized < 0 || normalized >= target.length) {
+            // Python's wording for the assignment case differs from the read's
+            // "list index out of range".
+            throw new IndexError('list assignment index out of range');
+        }
+        target[normalized] = value;
+        return;
+    }
+    if (target instanceof Map) {
+        // dict[key] = value: adds a new key or overwrites an existing one. The
+        // key must be hashable, exactly as a dict literal or dict.update require.
+        if (isMutable(indexValue)) throw new TypeError(`unhashable type: '${typeName(indexValue)}'`);
+        target.set(indexValue, value);
+        return;
+    }
+    if (typeof target === 'string') {
+        throw new TypeError("'str' object does not support item assignment");
+    }
+    if (target instanceof PyTuple) {
+        throw new TypeError("'tuple' object does not support item assignment");
+    }
+    throw new TypeError(`'${typeName(target)}' object does not support item assignment`);
 }
 
 // Python truthiness — what bool(x) and any condition uses. Zero, empty string,
@@ -360,5 +422,5 @@ module.exports = {
     pyRepr, pyStr, pyNumberStr, serializeValue, isMutable,
     lengthOf, iterate, pyBool,
     isFloat, isNumber, numberValue,
-    getItem, getSlice,
+    getItem, getSlice, setItem,
 };
