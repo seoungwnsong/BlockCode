@@ -4215,3 +4215,71 @@ body.marquee-no-select {
   -webkit-user-select: none;
 }
 
+.contextual-paste-popup {
+  position: absolute;
+  z-index: 60;
+  transform: translate(-6px, -6px);
+}
+
+.contextual-paste-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px 6px 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  background: var(--bg-panel-soft);
+  color: var(--text-main);
+  cursor: pointer;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
+  animation: contextual-paste-in 0.12s ease-out;
+}
+
+.contextual-paste-button:hover {
+  background: #223149;
+}
+
+.contextual-paste-button svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.contextual-paste-button span {
+  font-size: 12px;
+  font-weight: 750;
+}
+
+@keyframes contextual-paste-in {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Off-screen node used only as a native drag-image snapshot for a group
+   move (see setGroupDragImage) — never shown as part of the normal layout. */
+.group-drag-badge {
+  position: fixed;
+  top: -1000px;
+  left: -1000px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: #0f172a;
+  color: #e5e7eb;
+  font-family: Inter, Arial, sans-serif;
+  font-size: 12px;
+  font-weight: 750;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+  white-space: nowrap;
+}
+

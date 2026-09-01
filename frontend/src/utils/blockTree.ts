@@ -1273,6 +1273,69 @@ export function adjustTargetAfterRemoval(
   return target;
 }
 
+// Removes several top-level ids from blockList in one pass, threading the
+// updated list through each removal (mirroring how deleteSelectedBlocks
+// already loops removeBlockById), and returns the removed blocks in the
+// same order `ids` was given in — this is what lets a group-drag preserve
+// the selected blocks' original workspace order end to end.
+export function removeBlocksByIds(
+  blockList: Block[],
+  ids: number[]
+): { updatedBlocks: Block[]; removedBlocks: Block[] } {
+  let updatedBlocks = blockList;
+  const removedBlocks: Block[] = [];
+
+  for (const id of ids) {
+    const result = removeBlockById(updatedBlocks, id);
+    updatedBlocks = result.updatedBlocks;
+    if (result.removedBlock) removedBlocks.push(result.removedBlock);
+  }
+
+  return { updatedBlocks, removedBlocks };
+}
+
+// Inserts several blocks starting at target.index, preserving their given
+// order, by calling the existing single-item insertIntoBlocks once per
+// block with an incrementing index — reuses the exact same splice logic
+// (and every area it already supports) rather than a second implementation.
+export function insertManyIntoBlocks(
+  blockList: Block[],
+  target: ListDropTarget,
+  newBlocks: Block[]
+): Block[] {
+  let result = blockList;
+
+  newBlocks.forEach((block, offset) => {
+    result = insertIntoBlocks(
+      result,
+      { ...target, index: target.index + offset } as ListDropTarget,
+      block
+    );
+  });
+
+  return result;
+}
+
+// Group counterpart to adjustTargetAfterRemoval: selected blocks are always
+// top-level (selection never holds nested ids), so only a "root" area target
+// can ever need correcting — a nested target's own list is untouched by
+// removing root-level blocks. Shifts the target index left by however many
+// of the removed ids sat before it in the ORIGINAL root list.
+export function adjustTargetAfterGroupRemoval(
+  blockList: Block[],
+  ids: Set<number>,
+  target: ListDropTarget
+): ListDropTarget {
+  if (target.area !== "root") return target;
+
+  let removedBefore = 0;
+  for (let index = 0; index < target.index && index < blockList.length; index += 1) {
+    if (ids.has(blockList[index].id)) removedBefore += 1;
+  }
+
+  return { ...target, index: target.index - removedBefore };
+}
+
 export function syncExpressionFunctionCalls(
   expression: Expression,
   functionId: number,

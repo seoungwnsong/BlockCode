@@ -79,9 +79,12 @@ import {
   blockContainsExpressionId,
   blockContainsBlockId,
   insertIntoBlocks,
+  insertManyIntoBlocks,
   removeBlockById,
+  removeBlocksByIds,
   findBlockById,
   adjustTargetAfterRemoval,
+  adjustTargetAfterGroupRemoval,
   syncFunctionCalls,
   removeFunctionCalls,
   serializeBlock,
@@ -123,6 +126,13 @@ function App() {
   const [toolbarStyle, setToolbarStyle] = useState<CSSProperties | undefined>(
     undefined
   );
+  // At most one contextual Paste popup at a time: its screen position
+  // (container-relative, already clamped inside the workspace) plus the
+  // root-level index a paste from it should insert at.
+  const [contextualPaste, setContextualPaste] = useState<{
+    style: CSSProperties;
+    insertionIndex: number;
+  } | null>(null);
 
   const workspaceContainerRef = useRef<HTMLDivElement | null>(null);
   const blockElementRefs = useRef<Map<number, HTMLDivElement>>(new Map());
@@ -153,6 +163,7 @@ function App() {
     setSelectionResetKey(editingFunctionId);
     setSelectedBlockIds(new Set());
     setMarqueeBox(null);
+    setContextualPaste(null);
   }
 
   function isEditableEventTarget(target: EventTarget | null) {
@@ -172,7 +183,7 @@ function App() {
     if (!(target instanceof Element)) return false;
     return Boolean(
       target.closest(
-        'input, textarea, select, button, [contenteditable="true"], .scratch-block, .selection-toolbar'
+        'input, textarea, select, button, [contenteditable="true"], .scratch-block, .selection-toolbar, .contextual-paste-popup'
       )
     );
   }
@@ -271,7 +282,58 @@ function App() {
   // elements use the separate native HTML5 DnD pipeline, and this handler
   // bails out before capturing whenever the press starts on a block or any
   // interactive control.
+  // Root-level index a paste at this Y position should land at, using the
+  // exact same midpoint-comparison rule getBlockHoverTarget already uses for
+  // ordinary drag-and-drop hover targets — just applied directly to a click
+  // point instead of a specific hovered block-wrapper element.
+  function computeRootInsertionIndexFromY(clientY: number) {
+    for (let index = 0; index < currentBlocks.length; index += 1) {
+      const element = blockElementRefs.current.get(currentBlocks[index].id);
+      if (!element) continue;
+      const rect = element.getBoundingClientRect();
+      if (clientY < rect.top + rect.height / 2) return index;
+    }
+    return currentBlocks.length;
+  }
+
+  function showContextualPaste(
+    clientX: number,
+    clientY: number,
+    container: HTMLDivElement
+  ) {
+    const containerRect = container.getBoundingClientRect();
+    const { x: clampedX, y: clampedY } = clampToWorkspace(
+      clientX,
+      clientY,
+      containerRect
+    );
+    const insertionIndex = computeRootInsertionIndexFromY(clampedY);
+
+    const POPUP_WIDTH = 100;
+    const POPUP_HEIGHT = 36;
+    const maxLeft = container.scrollLeft + container.clientWidth - POPUP_WIDTH - 4;
+    const maxTop = container.scrollTop + container.clientHeight - POPUP_HEIGHT - 4;
+
+    const left = Math.max(
+      Math.min(clampedX - containerRect.left + container.scrollLeft, maxLeft),
+      container.scrollLeft + 4
+    );
+    const top = Math.max(
+      Math.min(clampedY - containerRect.top + container.scrollTop, maxTop),
+      container.scrollTop + 4
+    );
+
+    setContextualPaste({ style: { left, top }, insertionIndex });
+  }
+
   function handleWorkspacePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    // Any new press anywhere in the workspace invalidates a stale popup —
+    // covers "click elsewhere", "start marquee", and "start a block drag"
+    // (block drag's own pointerdown bubbles here before dragstart fires) in
+    // one place, since all of those are pointerdown gestures on or within
+    // this container.
+    setContextualPaste(null);
+
     if (event.button !== 0) return;
     if (isInteractiveOrBlockTarget(event.target)) return;
 
@@ -342,7 +404,14 @@ function App() {
     }
 
     if (!dragState.active) {
+      // A plain click (never crossed the marquee threshold): clear
+      // selection as before, and — only when there's something to paste —
+      // open the contextual Paste popup at the release point. A completed
+      // marquee drag (the `else` of this branch) never shows it.
       setSelectedBlockIds(new Set());
+      if (copiedBlocks.length > 0) {
+        showContextualPaste(event.clientX, event.clientY, container);
+      }
     }
 
     document.body.classList.remove("marquee-no-select");
@@ -379,11 +448,25 @@ function App() {
     setCopiedBlocks(ordered.map((block) => cloneBlock(block, false)));
   }
 
-  function pasteClipboard() {
+  // The one shared paste operation — used by the top-right Paste button,
+  // Cmd/Ctrl+V, and the contextual popup alike. `atIndex` is the root-level
+  // insertion index; omitted (top-right button, keyboard) it appends to the
+  // end, exactly as before. Every call always deep-clones with fresh ids
+  // (never reuses ids from the originals or from an earlier paste).
+  function pasteClipboard(atIndex?: number) {
     if (copiedBlocks.length === 0) return;
     const pasted = copiedBlocks.map((block) => cloneBlock(block, true));
-    setCurrentBlocks((previous) => [...previous, ...pasted]);
+    setCurrentBlocks((previous) => {
+      const index =
+        atIndex === undefined
+          ? previous.length
+          : Math.max(0, Math.min(atIndex, previous.length));
+      const next = [...previous];
+      next.splice(index, 0, ...pasted);
+      return next;
+    });
     setSelectedBlockIds(new Set(pasted.map((block) => block.id)));
+    setContextualPaste(null);
   }
 
   function deleteSelectedBlocks() {
@@ -408,9 +491,10 @@ function App() {
       const isMeta = event.metaKey || event.ctrlKey;
 
       if (event.key === "Escape") {
-        if (selectedBlockIds.size === 0) return;
+        if (selectedBlockIds.size === 0 && !contextualPaste) return;
         event.preventDefault();
         clearSelection();
+        setContextualPaste(null);
         return;
       }
 
@@ -440,6 +524,26 @@ function App() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   });
+
+  // Dismiss the contextual popup on a press anywhere outside it — covers
+  // clicks in the toolbox/output/header, which sit outside the workspace
+  // container and so never reach handleWorkspacePointerDown's own dismiss.
+  // Only mounted while the popup actually exists.
+  useEffect(() => {
+    if (!contextualPaste) return;
+
+    function handleOutsidePointerDown(event: PointerEvent) {
+      const target = event.target;
+      if (target instanceof Element && target.closest(".contextual-paste-popup")) {
+        return;
+      }
+      setContextualPaste(null);
+    }
+
+    window.addEventListener("pointerdown", handleOutsidePointerDown);
+    return () =>
+      window.removeEventListener("pointerdown", handleOutsidePointerDown);
+  }, [contextualPaste]);
 
   // Measures the selected blocks' combined DOM bounds and stores the
   // floating toolbar's container-relative position. This is a standard
@@ -480,7 +584,12 @@ function App() {
       left: Math.max(Math.min(left, right - 68), 0),
       top: Math.max(top - 44, 0),
     });
-  }, [selectedBlockIds]);
+    // currentBlocks is also a dependency: a group move keeps the same
+    // selectedBlockIds (same Set, no clone/reselect), but the selected
+    // blocks' on-screen position changes when their order changes, so the
+    // toolbar needs to re-measure then too, not just when selection itself
+    // changes.
+  }, [selectedBlockIds, currentBlocks]);
 
   const programJson = {
     functions: functions.map((func) => ({
@@ -1052,11 +1161,55 @@ function App() {
     event.dataTransfer.effectAllowed = "copy";
   }
 
+  // A short-lived off-screen node used as the native drag image for a group
+  // move — standard technique for HTML5 DnD custom previews: the browser
+  // snapshots it synchronously inside setDragImage, so it's safe to remove
+  // right after.
+  function setGroupDragImage(event: DragEvent<HTMLDivElement>, count: number) {
+    const badge = document.createElement("div");
+    badge.className = "group-drag-badge";
+    badge.textContent = `${count} blocks`;
+    document.body.appendChild(badge);
+    event.dataTransfer.setDragImage(badge, 18, 16);
+    window.setTimeout(() => {
+      badge.parentNode?.removeChild(badge);
+    }, 0);
+  }
+
   function handleWorkspaceBlockDragStart(
     event: DragEvent<HTMLDivElement>,
-    id: number
+    id: number,
+    isTopLevel: boolean
   ) {
     event.stopPropagation();
+    setContextualPaste(null);
+
+    // Dragging any one of a multi-selection moves the whole group. This is
+    // scoped to isTopLevel because selectedBlockIds only ever holds
+    // top-level ids — without the guard, starting a drag on some unrelated
+    // NESTED block (which can never be "selected") would still see
+    // selectedBlockIds.size > 0 and incorrectly steal/clobber the top-level
+    // selection.
+    if (isTopLevel && selectedBlockIds.has(id) && selectedBlockIds.size > 1) {
+      const orderedIds = currentBlocks
+        .filter((block) => selectedBlockIds.has(block.id))
+        .map((block) => block.id);
+
+      event.dataTransfer.setData("source", "workspace-group");
+      event.dataTransfer.setData("blockIds", JSON.stringify(orderedIds));
+      event.dataTransfer.effectAllowed = "move";
+      setGroupDragImage(event, orderedIds.length);
+      return;
+    }
+
+    // Dragging a block that isn't part of the current selection is a plain
+    // single-block drag — if something else was selected, that selection no
+    // longer applies to what's actually being dragged, so it moves to just
+    // this block instead (matches the click-to-select model elsewhere).
+    if (isTopLevel && !selectedBlockIds.has(id) && selectedBlockIds.size > 0) {
+      setSelectedBlockIds(new Set([id]));
+    }
+
     event.dataTransfer.setData("source", "workspace");
     event.dataTransfer.setData("blockId", String(id));
     event.dataTransfer.effectAllowed = "move";
@@ -1198,6 +1351,56 @@ function App() {
             removal.updatedBlocks,
             adjustedTarget,
             removal.removedBlock
+          );
+        });
+      }
+    }
+
+    // A group move of the current multi-selection — see
+    // handleWorkspaceBlockDragStart. This is a MOVE, never a copy: the same
+    // Block objects (same ids) are removed from wherever they are and
+    // reinserted at the drop target, nothing is cloned and no id is
+    // regenerated. A single-slot expression target can't hold more than one
+    // block, so that combination is simply a no-op.
+    if (source === "workspace-group" && finalTarget.area !== "expression") {
+      let ids: number[] = [];
+      try {
+        ids = JSON.parse(event.dataTransfer.getData("blockIds"));
+      } catch {
+        ids = [];
+      }
+
+      if (ids.length > 0) {
+        setCurrentBlocks((previous) => {
+          const idSet = new Set(ids);
+
+          if ("parentId" in finalTarget) {
+            const dropsIntoOwnSubtree = ids.some((id) => {
+              const block = findBlockById(previous, id);
+              return (
+                block !== null &&
+                blockContainsBlockId(block, finalTarget.parentId)
+              );
+            });
+            if (dropsIntoOwnSubtree) return previous;
+          }
+
+          const adjustedTarget = adjustTargetAfterGroupRemoval(
+            previous,
+            idSet,
+            finalTarget
+          );
+          const { updatedBlocks, removedBlocks } = removeBlocksByIds(
+            previous,
+            ids
+          );
+
+          if (removedBlocks.length === 0) return previous;
+
+          return insertManyIntoBlocks(
+            updatedBlocks,
+            adjustedTarget,
+            removedBlocks
           );
         });
       }
@@ -2381,7 +2584,7 @@ function App() {
         }`}
         draggable
         onDragStart={(event) =>
-          handleWorkspaceBlockDragStart(event, block.id)
+          handleWorkspaceBlockDragStart(event, block.id, isTopLevel)
         }
         onDragEnd={handleDragEnd}
         onClick={
@@ -2874,7 +3077,7 @@ function App() {
                 title="Paste"
                 aria-label="Paste"
                 disabled={copiedBlocks.length === 0}
-                onClick={pasteClipboard}
+                onClick={() => pasteClipboard()}
               >
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                   <path d="M9 4h6a1 1 0 0 1 1 1v1H8V5a1 1 0 0 1 1-1Z" />
@@ -2944,6 +3147,28 @@ function App() {
                     <path d="M10 11v6" />
                     <path d="M14 11v6" />
                   </svg>
+                </button>
+              </div>
+            )}
+
+            {contextualPaste && (
+              <div
+                className="contextual-paste-popup"
+                style={contextualPaste.style}
+                onPointerDown={(event) => event.stopPropagation()}
+              >
+                <button
+                  type="button"
+                  className="contextual-paste-button"
+                  title="Paste"
+                  aria-label="Paste"
+                  onClick={() => pasteClipboard(contextualPaste.insertionIndex)}
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M9 4h6a1 1 0 0 1 1 1v1H8V5a1 1 0 0 1 1-1Z" />
+                    <rect x="6" y="6" width="12" height="15" rx="2" />
+                  </svg>
+                  <span>Paste</span>
                 </button>
               </div>
             )}
