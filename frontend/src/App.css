@@ -570,6 +570,7 @@ body {
 }
 
 .workspace-mode-card {
+  position: relative;
   animation: workspace-switch 0.18s ease-out;
 }
 
@@ -4110,5 +4111,107 @@ textarea {
   margin: 0 0 8px;
   padding: 0;
   font-size: 9.5px;
+}
+
+/* MULTI-SELECT: marquee, selected blocks, floating toolbar */
+
+.scratch-block.block-selected {
+  outline: 2px solid var(--border-bright);
+  outline-offset: 3px;
+  filter: drop-shadow(0 0 8px rgba(56, 189, 248, 0.45));
+}
+
+.marquee-selection-box {
+  position: absolute;
+  border: 1px solid var(--border-bright);
+  background: rgba(56, 189, 248, 0.12);
+  border-radius: 4px;
+  pointer-events: none;
+  z-index: 50;
+}
+
+.selection-toolbar {
+  position: absolute;
+  z-index: 60;
+  display: flex;
+  gap: 6px;
+  padding: 5px;
+  border-radius: 10px;
+  background: var(--bg-panel-soft);
+  border: 1px solid var(--border-soft);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
+}
+
+.selection-toolbar-button {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 7px;
+  background: rgba(148, 163, 184, 0.14);
+  color: var(--text-main);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.selection-toolbar-button:hover {
+  background: rgba(148, 163, 184, 0.26);
+}
+
+.selection-toolbar-button svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.selection-toolbar-delete:hover {
+  background: rgba(248, 113, 113, 0.28);
+  color: #fecaca;
+}
+
+/* Scoped as .zoom-controls .paste-button (two classes) rather than bare
+   .paste-button so it outranks the earlier `.zoom-controls button` layers
+   (one class + one element) regardless of source order. */
+.zoom-controls .paste-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 4px;
+  padding: 5px 10px 5px 8px;
+  border-radius: 999px;
+}
+
+.paste-button svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.paste-button span {
+  font-size: 12px;
+}
+
+.paste-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* Applied to <body> only while an active marquee drag is in progress, so
+   dragging a large selection rectangle never highlights page text (toolbox
+   labels, output text, etc). Removed again on pointerup/pointercancel. */
+body.marquee-no-select {
+  user-select: none;
+  -webkit-user-select: none;
 }
 

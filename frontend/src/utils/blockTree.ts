@@ -2076,6 +2076,207 @@ export function serializeBlock(block: Block): JsonBlock {
       };
   }
 }
+// Deep-clones an expression tree. With regenerateIds true, every id in the
+// tree (including dictionary-entry ids) gets a fresh makeId() — this is what
+// paste uses so pasted blocks never collide with the originals' ids. With
+// regenerateIds false, ids are preserved — this is what copy uses, so the
+// clipboard holds a structurally independent snapshot (not the same object
+// references as the live tree) without committing to new ids before the user
+// actually pastes.
+export function cloneExpression(expression: Expression, regenerateIds: boolean): Expression {
+  const id = regenerateIds ? makeId() : expression.id;
+
+  switch (expression.type) {
+    case "literal":
+      return { ...expression, id };
+
+    case "variableReference":
+      return { ...expression, id };
+
+    case "calculation":
+      return {
+        ...expression,
+        id,
+        left: cloneExpression(expression.left, regenerateIds),
+        right: cloneExpression(expression.right, regenerateIds),
+      };
+
+    case "calculationChain":
+      return {
+        ...expression,
+        id,
+        first: cloneExpression(expression.first, regenerateIds),
+        operations: expression.operations.map((operation) => ({
+          ...operation,
+          value: cloneExpression(operation.value, regenerateIds),
+        })),
+      };
+
+    case "logic":
+      return {
+        ...expression,
+        id,
+        left: cloneExpression(expression.left, regenerateIds),
+        right: cloneExpression(expression.right, regenerateIds),
+      };
+
+    case "comparisonChain":
+      return {
+        ...expression,
+        id,
+        first: cloneExpression(expression.first, regenerateIds),
+        comparisons: expression.comparisons.map((comparison) => ({
+          ...comparison,
+          right: cloneExpression(comparison.right, regenerateIds),
+        })),
+      };
+
+    case "array":
+      return {
+        ...expression,
+        id,
+        items: expression.items.map((item) => cloneExpression(item, regenerateIds)),
+      };
+
+    case "set":
+      return {
+        ...expression,
+        id,
+        items: expression.items.map((item) => cloneExpression(item, regenerateIds)),
+      };
+
+    case "tuple":
+      return {
+        ...expression,
+        id,
+        items: expression.items.map((item) => cloneExpression(item, regenerateIds)),
+      };
+
+    case "dictionary":
+      return {
+        ...expression,
+        id,
+        entries: expression.entries.map((entry) => ({
+          id: regenerateIds ? makeId() : entry.id,
+          key: cloneExpression(entry.key, regenerateIds),
+          value: cloneExpression(entry.value, regenerateIds),
+        })),
+      };
+
+    case "index":
+      return {
+        ...expression,
+        id,
+        target: cloneExpression(expression.target, regenerateIds),
+        index: cloneExpression(expression.index, regenerateIds),
+      };
+
+    case "slice":
+      return {
+        ...expression,
+        id,
+        target: cloneExpression(expression.target, regenerateIds),
+        start: expression.start === null ? null : cloneExpression(expression.start, regenerateIds),
+        stop: expression.stop === null ? null : cloneExpression(expression.stop, regenerateIds),
+        step: expression.step === null ? null : cloneExpression(expression.step, regenerateIds),
+      };
+
+    case "builtinCall":
+      return {
+        ...expression,
+        id,
+        argLabels: [...expression.argLabels],
+        args: expression.args.map((argument) => cloneExpression(argument, regenerateIds)),
+      };
+
+    case "call":
+      // functionId is a reference to a UserFunction and is deliberately left
+      // untouched — the clone still calls the same function.
+      return {
+        ...expression,
+        id,
+        paramNames: [...expression.paramNames],
+        args: expression.args.map((argument) => cloneExpression(argument, regenerateIds)),
+      };
+  }
+}
+
+// Deep-clones a block/statement tree, recursing through every nested
+// container (if/elif/else, while, for, try/catch) and every expression they
+// hold. See cloneExpression for what regenerateIds controls.
+export function cloneBlock(block: Block, regenerateIds: boolean): Block {
+  if (isExpressionStatementBlock(block)) {
+    return cloneExpression(block, regenerateIds) as ExpressionStatementBlock;
+  }
+
+  const id = regenerateIds ? makeId() : block.id;
+
+  switch (block.type) {
+    case "variable":
+      return { ...block, id, value: cloneExpression(block.value, regenerateIds) };
+
+    case "parallelAssign":
+      return {
+        ...block,
+        id,
+        targets: [...block.targets],
+        values: block.values.map((value) => cloneExpression(value, regenerateIds)),
+      };
+
+    case "print":
+      return { ...block, id, value: cloneExpression(block.value, regenerateIds) };
+
+    case "return":
+      return { ...block, id, value: cloneExpression(block.value, regenerateIds) };
+
+    case "if":
+      return {
+        ...block,
+        id,
+        condition: cloneExpression(block.condition, regenerateIds),
+        children: block.children.map((child) => cloneBlock(child, regenerateIds)),
+        elifBranches: block.elifBranches.map((branch) => ({
+          id: regenerateIds ? makeId() : branch.id,
+          condition: cloneExpression(branch.condition, regenerateIds),
+          children: branch.children.map((child) => cloneBlock(child, regenerateIds)),
+        })),
+        elseChildren:
+          block.elseChildren === null
+            ? null
+            : block.elseChildren.map((child) => cloneBlock(child, regenerateIds)),
+      };
+
+    case "while":
+      return {
+        ...block,
+        id,
+        condition: cloneExpression(block.condition, regenerateIds),
+        children: block.children.map((child) => cloneBlock(child, regenerateIds)),
+      };
+
+    case "for":
+      return {
+        ...block,
+        id,
+        start: cloneExpression(block.start, regenerateIds),
+        end: cloneExpression(block.end, regenerateIds),
+        children: block.children.map((child) => cloneBlock(child, regenerateIds)),
+      };
+
+    case "tryCatch":
+      return {
+        ...block,
+        id,
+        tryChildren: block.tryChildren.map((child) => cloneBlock(child, regenerateIds)),
+        catches: block.catches.map((branch) => ({
+          id: regenerateIds ? makeId() : branch.id,
+          errorType: branch.errorType,
+          children: branch.children.map((child) => cloneBlock(child, regenerateIds)),
+        })),
+      };
+  }
+}
+
 export function collectConditionErrors(
   condition: Expression,
   location: string,

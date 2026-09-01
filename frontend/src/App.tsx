@@ -1,5 +1,10 @@
-import { useState } from "react";
-import type { DragEvent } from "react";
+import { useEffect, useRef, useState } from "react";
+import type {
+  CSSProperties,
+  DragEvent,
+  MouseEvent as ReactMouseEvent,
+  PointerEvent as ReactPointerEvent,
+} from "react";
 import "./App.css";
 import blockCodeLogo from "./assets/blockcode-logo.png";
 import { ToolboxAccordion } from "./components/toolbox/ToolboxAccordion";
@@ -81,6 +86,7 @@ import {
   removeFunctionCalls,
   serializeBlock,
   collectBlockErrors,
+  cloneBlock,
 } from "./utils/blockTree";
 import { buildPythonSource } from "./utils/pythonPreview";
 
@@ -105,6 +111,33 @@ function App() {
   const [openFunctionTabIds, setOpenFunctionTabIds] = useState<number[]>([]);
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
 
+  // Multi-select: selectedBlockIds always holds ids from the TOP LEVEL of
+  // currentBlocks only (never nested children) — see renderBlockList, which
+  // only marks the root pass as selectable. Purely editor/UI state: never
+  // serialized, never affects program semantics.
+  const [selectedBlockIds, setSelectedBlockIds] = useState<Set<number>>(
+    new Set()
+  );
+  const [copiedBlocks, setCopiedBlocks] = useState<Block[]>([]);
+  const [marqueeBox, setMarqueeBox] = useState<CSSProperties | null>(null);
+  const [toolbarStyle, setToolbarStyle] = useState<CSSProperties | undefined>(
+    undefined
+  );
+
+  const workspaceContainerRef = useRef<HTMLDivElement | null>(null);
+  const blockElementRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  // Marquee dragging uses Pointer Events + setPointerCapture (see
+  // handleWorkspacePointerDown) rather than window-level mouse listeners, so
+  // pointermove/pointerup are plain JSX handlers that always close over the
+  // current render's state directly — no ref-mirroring needed for that part.
+  // This ref only tracks the in-progress gesture itself.
+  const marqueeDragRef = useRef<{
+    startX: number;
+    startY: number;
+    active: boolean;
+    pointerId: number;
+  } | null>(null);
+
   const editingFunction =
     editingFunctionId === null
       ? null
@@ -112,21 +145,209 @@ function App() {
 
   const currentBlocks = editingFunction ? editingFunction.children : blocks;
 
-  const programJson = {
-    functions: functions.map((func) => ({
-      id: func.id,
-      type: "def" as const,
-      name: func.name,
-      params: [...func.params],
-      children: func.children.map(serializeBlock),
-    })),
-    blocks: blocks.map(serializeBlock),
-  };
+  // Selection refers to ids in whichever workspace is currently open — reset
+  // it during render when the tab changes, rather than in an effect, so it
+  // never briefly points at blocks from a different list after a switch.
+  const [selectionResetKey, setSelectionResetKey] = useState(editingFunctionId);
+  if (selectionResetKey !== editingFunctionId) {
+    setSelectionResetKey(editingFunctionId);
+    setSelectedBlockIds(new Set());
+    setMarqueeBox(null);
+  }
 
-  function getInputWidth(value: string, minWidth = 72, maxWidth = 240) {
-    const textLength = value.length === 0 ? 4 : value.length;
-    const calculatedWidth = textLength * 8 + 20;
-    return Math.min(Math.max(minWidth, calculatedWidth), maxWidth);
+  function isEditableEventTarget(target: EventTarget | null) {
+    if (!(target instanceof HTMLElement)) return false;
+    if (target.isContentEditable) return true;
+    const tag = target.tagName;
+    return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+  }
+
+  // Element, not HTMLElement: an SVG icon inside a toolbar/block button is an
+  // SVGElement, and `instanceof HTMLElement` is false for those. Using the
+  // instanceof HTMLElement check here let pointerdown-on-icon fall through as
+  // "not interactive", which is what silently broke the Copy/Delete buttons —
+  // the workspace read the gesture as an empty-space click and cleared the
+  // selection out from under the button's own click handler.
+  function isInteractiveOrBlockTarget(target: EventTarget | null) {
+    if (!(target instanceof Element)) return false;
+    return Boolean(
+      target.closest(
+        'input, textarea, select, button, [contenteditable="true"], .scratch-block, .selection-toolbar'
+      )
+    );
+  }
+
+  function hasActiveTextSelection() {
+    const selection = window.getSelection();
+    return !!selection && selection.toString().length > 0;
+  }
+
+  function toggleBlockSelection(id: number) {
+    setSelectedBlockIds((previous) => {
+      const next = new Set(previous);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function clearSelection() {
+    setSelectedBlockIds(new Set());
+  }
+
+  function handleBlockClick(
+    event: ReactMouseEvent<HTMLDivElement>,
+    blockId: number
+  ) {
+    if (!(event.metaKey || event.ctrlKey)) return;
+    const target = event.target;
+    if (
+      target instanceof Element &&
+      target.closest('input, textarea, select, button, [contenteditable="true"]')
+    ) {
+      return;
+    }
+    event.stopPropagation();
+    toggleBlockSelection(blockId);
+  }
+
+  // A mousedown/pointerdown landing on the container's own scrollbar has the
+  // container itself as event.target (same as clicking empty canvas), so it
+  // can't be excluded by a target/closest check — this measures the actual
+  // scrollbar thickness (offsetWidth/Height vs clientWidth/Height) and treats
+  // a press within that strip as "not empty workspace".
+  function isOnWorkspaceScrollbar(
+    event: { clientX: number; clientY: number },
+    container: HTMLDivElement
+  ) {
+    const rect = container.getBoundingClientRect();
+    const scrollbarWidth = container.offsetWidth - container.clientWidth;
+    const scrollbarHeight = container.offsetHeight - container.clientHeight;
+    const onVerticalScrollbar =
+      scrollbarWidth > 0 && event.clientX >= rect.right - scrollbarWidth;
+    const onHorizontalScrollbar =
+      scrollbarHeight > 0 && event.clientY >= rect.bottom - scrollbarHeight;
+    return onVerticalScrollbar || onHorizontalScrollbar;
+  }
+
+  function clampToWorkspace(clientX: number, clientY: number, rect: DOMRect) {
+    return {
+      x: Math.min(Math.max(clientX, rect.left), rect.right),
+      y: Math.min(Math.max(clientY, rect.top), rect.bottom),
+    };
+  }
+
+  function computeMarqueeGeometry(
+    dragState: { startX: number; startY: number },
+    clampedX: number,
+    clampedY: number,
+    containerRect: DOMRect,
+    container: HTMLDivElement
+  ) {
+    const left = Math.min(dragState.startX, clampedX);
+    const right = Math.max(dragState.startX, clampedX);
+    const top = Math.min(dragState.startY, clampedY);
+    const bottom = Math.max(dragState.startY, clampedY);
+
+    return {
+      left,
+      right,
+      top,
+      bottom,
+      style: {
+        left: left - containerRect.left + container.scrollLeft,
+        top: top - containerRect.top + container.scrollTop,
+        width: right - left,
+        height: bottom - top,
+      } satisfies CSSProperties,
+    };
+  }
+
+  // pointerdown/pointermove/pointerup (with setPointerCapture) replace plain
+  // mouse events here so the gesture keeps receiving updates even if the
+  // pointer momentarily leaves the workspace element or the window — capture
+  // re-targets those events back to the container instead of losing them.
+  // This never engages for an actual block/expression drag: draggable="true"
+  // elements use the separate native HTML5 DnD pipeline, and this handler
+  // bails out before capturing whenever the press starts on a block or any
+  // interactive control.
+  function handleWorkspacePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.button !== 0) return;
+    if (isInteractiveOrBlockTarget(event.target)) return;
+
+    const container = event.currentTarget;
+    if (isOnWorkspaceScrollbar(event, container)) return;
+
+    event.preventDefault();
+    container.setPointerCapture(event.pointerId);
+    marqueeDragRef.current = {
+      startX: event.clientX,
+      startY: event.clientY,
+      active: false,
+      pointerId: event.pointerId,
+    };
+  }
+
+  function handleWorkspacePointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    const dragState = marqueeDragRef.current;
+    if (!dragState || dragState.pointerId !== event.pointerId) return;
+
+    const container = event.currentTarget;
+    const containerRect = container.getBoundingClientRect();
+    const { x: clampedX, y: clampedY } = clampToWorkspace(
+      event.clientX,
+      event.clientY,
+      containerRect
+    );
+
+    if (!dragState.active) {
+      const dx = clampedX - dragState.startX;
+      const dy = clampedY - dragState.startY;
+      if (Math.abs(dx) < 4 && Math.abs(dy) < 4) return;
+      dragState.active = true;
+      document.body.classList.add("marquee-no-select");
+    }
+
+    const { left, right, top, bottom, style } = computeMarqueeGeometry(
+      dragState,
+      clampedX,
+      clampedY,
+      containerRect,
+      container
+    );
+    setMarqueeBox(style);
+
+    const nextSelected = new Set<number>();
+    for (const block of currentBlocks) {
+      const element = blockElementRefs.current.get(block.id);
+      if (!element) continue;
+      const rect = element.getBoundingClientRect();
+      const intersects =
+        rect.left < right &&
+        rect.right > left &&
+        rect.top < bottom &&
+        rect.bottom > top;
+      if (intersects) nextSelected.add(block.id);
+    }
+    setSelectedBlockIds(nextSelected);
+  }
+
+  function endWorkspacePointerGesture(event: ReactPointerEvent<HTMLDivElement>) {
+    const dragState = marqueeDragRef.current;
+    if (!dragState || dragState.pointerId !== event.pointerId) return;
+
+    const container = event.currentTarget;
+    if (container.hasPointerCapture(dragState.pointerId)) {
+      container.releasePointerCapture(dragState.pointerId);
+    }
+
+    if (!dragState.active) {
+      setSelectedBlockIds(new Set());
+    }
+
+    document.body.classList.remove("marquee-no-select");
+    marqueeDragRef.current = null;
+    setMarqueeBox(null);
   }
 
   function setCurrentBlocks(updater: Block[] | ((previous: Block[]) => Block[])) {
@@ -148,6 +369,134 @@ function App() {
     }
 
     setBlocks(updater);
+  }
+
+  function copySelectedBlocks() {
+    if (selectedBlockIds.size === 0) return;
+    const ordered = currentBlocks.filter((block) =>
+      selectedBlockIds.has(block.id)
+    );
+    setCopiedBlocks(ordered.map((block) => cloneBlock(block, false)));
+  }
+
+  function pasteClipboard() {
+    if (copiedBlocks.length === 0) return;
+    const pasted = copiedBlocks.map((block) => cloneBlock(block, true));
+    setCurrentBlocks((previous) => [...previous, ...pasted]);
+    setSelectedBlockIds(new Set(pasted.map((block) => block.id)));
+  }
+
+  function deleteSelectedBlocks() {
+    if (selectedBlockIds.size === 0) return;
+    setCurrentBlocks((previous) => {
+      let result = previous;
+      for (const id of selectedBlockIds) {
+        result = removeBlockById(result, id).updatedBlocks;
+      }
+      return result;
+    });
+    setSelectedBlockIds(new Set());
+  }
+
+  // Re-subscribed every render (cheap for a keydown listener, unlike the
+  // mousemove one above) so the guards and actions below always see the
+  // current selection/clipboard/workspace without needing ref mirrors.
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (isEditableEventTarget(event.target)) return;
+
+      const isMeta = event.metaKey || event.ctrlKey;
+
+      if (event.key === "Escape") {
+        if (selectedBlockIds.size === 0) return;
+        event.preventDefault();
+        clearSelection();
+        return;
+      }
+
+      if (isMeta && event.key.toLowerCase() === "c") {
+        if (hasActiveTextSelection()) return;
+        if (selectedBlockIds.size === 0) return;
+        event.preventDefault();
+        copySelectedBlocks();
+        return;
+      }
+
+      if (isMeta && event.key.toLowerCase() === "v") {
+        if (copiedBlocks.length === 0) return;
+        event.preventDefault();
+        pasteClipboard();
+        return;
+      }
+
+      if (event.key === "Delete" || event.key === "Backspace") {
+        if (selectedBlockIds.size === 0) return;
+        event.preventDefault();
+        deleteSelectedBlocks();
+        return;
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  });
+
+  // Measures the selected blocks' combined DOM bounds and stores the
+  // floating toolbar's container-relative position. This is a standard
+  // "synchronize with the DOM after a state change" effect, so it belongs
+  // in an effect (unlike the tab-switch reset above, which was resetting
+  // fixed values rather than measuring anything).
+  useEffect(() => {
+    const container = workspaceContainerRef.current;
+    if (selectedBlockIds.size === 0 || !container) {
+      setToolbarStyle(undefined);
+      return;
+    }
+
+    const containerRect = container.getBoundingClientRect();
+    let minLeft = Infinity;
+    let minTop = Infinity;
+    let maxRight = -Infinity;
+
+    for (const id of selectedBlockIds) {
+      const element = blockElementRefs.current.get(id);
+      if (!element) continue;
+      const rect = element.getBoundingClientRect();
+      minLeft = Math.min(minLeft, rect.left);
+      minTop = Math.min(minTop, rect.top);
+      maxRight = Math.max(maxRight, rect.right);
+    }
+
+    if (!Number.isFinite(minLeft)) {
+      setToolbarStyle(undefined);
+      return;
+    }
+
+    const left = minLeft - containerRect.left + container.scrollLeft;
+    const top = minTop - containerRect.top + container.scrollTop;
+    const right = maxRight - containerRect.left + container.scrollLeft;
+
+    setToolbarStyle({
+      left: Math.max(Math.min(left, right - 68), 0),
+      top: Math.max(top - 44, 0),
+    });
+  }, [selectedBlockIds]);
+
+  const programJson = {
+    functions: functions.map((func) => ({
+      id: func.id,
+      type: "def" as const,
+      name: func.name,
+      params: [...func.params],
+      children: func.children.map(serializeBlock),
+    })),
+    blocks: blocks.map(serializeBlock),
+  };
+
+  function getInputWidth(value: string, minWidth = 72, maxWidth = 240) {
+    const textLength = value.length === 0 ? 4 : value.length;
+    const calculatedWidth = textLength * 8 + 20;
+    return Math.min(Math.max(minWidth, calculatedWidth), maxWidth);
   }
 
   function updateBlockById(
@@ -921,6 +1270,12 @@ function App() {
   function deleteBlock(id: number) {
     const result = removeBlockById(currentBlocks, id);
     setCurrentBlocks(result.updatedBlocks);
+    setSelectedBlockIds((previous) => {
+      if (!previous.has(id)) return previous;
+      const next = new Set(previous);
+      next.delete(id);
+      return next;
+    });
   }
 
   function zoomIn() {
@@ -1318,7 +1673,7 @@ function App() {
               handleDrop(event, target);
             }}
           >
-            {renderBlock(block)}
+            {renderBlock(block, area === "root")}
             {renderDropZone(
               makeListTarget(
                 area,
@@ -2008,21 +2363,32 @@ function App() {
     );
   }
 
-  function renderBlock(block: Block) {
+  function renderBlock(block: Block, isTopLevel = false) {
     return (
       <div
+        ref={(element) => {
+          if (element) blockElementRefs.current.set(block.id, element);
+          else blockElementRefs.current.delete(block.id);
+        }}
         className={`scratch-block ${block.type}-block ${
           isContainerBlock(block) ? "container-block" : ""
         } ${
           block.type === "builtinCall"
             ? `builtin-call-${getBuiltinGroupId(block.name)}`
             : ""
+        } ${
+          isTopLevel && selectedBlockIds.has(block.id) ? "block-selected" : ""
         }`}
         draggable
         onDragStart={(event) =>
           handleWorkspaceBlockDragStart(event, block.id)
         }
         onDragEnd={handleDragEnd}
+        onClick={
+          isTopLevel
+            ? (event) => handleBlockClick(event, block.id)
+            : undefined
+        }
       >
         <button
           className="delete-button"
@@ -2502,11 +2868,26 @@ function App() {
               <span>{Math.round(zoom * 100)}%</span>
               <button onClick={zoomIn}>+</button>
               <button onClick={resetZoom}>Reset</button>
+              <button
+                type="button"
+                className="paste-button"
+                title="Paste"
+                aria-label="Paste"
+                disabled={copiedBlocks.length === 0}
+                onClick={pasteClipboard}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M9 4h6a1 1 0 0 1 1 1v1H8V5a1 1 0 0 1 1-1Z" />
+                  <rect x="6" y="6" width="12" height="15" rx="2" />
+                </svg>
+                <span>Paste</span>
+              </button>
             </div>
           </div>
 
           <div
             key={editingFunction ? `function-${editingFunction.id}` : "main"}
+            ref={workspaceContainerRef}
             className="drop-zone workspace-mode-card"
             onDragOver={(event) => event.preventDefault()}
             onDrop={(event) =>
@@ -2515,6 +2896,10 @@ function App() {
                 index: currentBlocks.length,
               })
             }
+            onPointerDown={handleWorkspacePointerDown}
+            onPointerMove={handleWorkspacePointerMove}
+            onPointerUp={endWorkspacePointerGesture}
+            onPointerCancel={endWorkspacePointerGesture}
           >
             <div
               className="zoom-canvas"
@@ -2522,6 +2907,46 @@ function App() {
             >
               {renderBlockList(currentBlocks, "root")}
             </div>
+
+            {marqueeBox && (
+              <div className="marquee-selection-box" style={marqueeBox} />
+            )}
+
+            {selectedBlockIds.size > 0 && (
+              <div
+                className="selection-toolbar"
+                style={toolbarStyle}
+                onPointerDown={(event) => event.stopPropagation()}
+              >
+                <button
+                  type="button"
+                  className="selection-toolbar-button"
+                  title="Copy selected blocks"
+                  aria-label="Copy selected blocks"
+                  onClick={copySelectedBlocks}
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <rect x="8" y="8" width="12" height="12" rx="2" />
+                    <rect x="4" y="4" width="12" height="12" rx="2" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  className="selection-toolbar-button selection-toolbar-delete"
+                  title="Delete selected blocks"
+                  aria-label="Delete selected blocks"
+                  onClick={deleteSelectedBlocks}
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M4 7h16" />
+                    <path d="M9 7V4h6v3" />
+                    <path d="M6 7l1 13h10l1-13" />
+                    <path d="M10 11v6" />
+                    <path d="M14 11v6" />
+                  </svg>
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </main>
