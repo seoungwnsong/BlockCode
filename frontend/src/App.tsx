@@ -3071,20 +3071,6 @@ function App() {
               <span>{Math.round(zoom * 100)}%</span>
               <button onClick={zoomIn}>+</button>
               <button onClick={resetZoom}>Reset</button>
-              <button
-                type="button"
-                className="paste-button"
-                title="Paste"
-                aria-label="Paste"
-                disabled={copiedBlocks.length === 0}
-                onClick={() => pasteClipboard()}
-              >
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M9 4h6a1 1 0 0 1 1 1v1H8V5a1 1 0 0 1 1-1Z" />
-                  <rect x="6" y="6" width="12" height="15" rx="2" />
-                </svg>
-                <span>Paste</span>
-              </button>
             </div>
           </div>
 

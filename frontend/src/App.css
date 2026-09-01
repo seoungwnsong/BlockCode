@@ -4175,38 +4175,6 @@ textarea {
   color: #fecaca;
 }
 
-/* Scoped as .zoom-controls .paste-button (two classes) rather than bare
-   .paste-button so it outranks the earlier `.zoom-controls button` layers
-   (one class + one element) regardless of source order. */
-.zoom-controls .paste-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-left: 4px;
-  padding: 5px 10px 5px 8px;
-  border-radius: 999px;
-}
-
-.paste-button svg {
-  width: 14px;
-  height: 14px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.7;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.paste-button span {
-  font-size: 12px;
-}
-
-.paste-button:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-  pointer-events: none;
-}
-
 /* Applied to <body> only while an active marquee drag is in progress, so
    dragging a large selection rectangle never highlights page text (toolbox
    labels, output text, etc). Removed again on pointerup/pointercancel. */
