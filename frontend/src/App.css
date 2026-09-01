@@ -4185,19 +4185,39 @@ textarea {
   color: #fecaca;
 }
 
-/* Scoped as .zoom-controls .paste-button (two classes) rather than bare
-   .paste-button so it outranks the earlier `.zoom-controls button` layers
-   (one class + one element) regardless of source order. */
-.zoom-controls .paste-button {
+/* Applied to <body> only while an active marquee drag is in progress, so
+   dragging a large selection rectangle never highlights page text (toolbox
+   labels, output text, etc). Removed again on pointerup/pointercancel. */
+body.marquee-no-select {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.contextual-paste-popup {
+  position: absolute;
+  z-index: 60;
+  transform: translate(-6px, -6px);
+}
+
+.contextual-paste-button {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  margin-left: 4px;
-  padding: 5px 10px 5px 8px;
+  padding: 6px 12px 6px 10px;
+  border: 1px solid var(--border-soft);
   border-radius: 999px;
+  background: var(--bg-panel-soft);
+  color: var(--text-main);
+  cursor: pointer;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
+  animation: contextual-paste-in 0.12s ease-out;
 }
 
-.paste-button svg {
+.contextual-paste-button:hover {
+  background: #223149;
+}
+
+.contextual-paste-button svg {
   width: 14px;
   height: 14px;
   fill: none;
@@ -4207,21 +4227,37 @@ textarea {
   stroke-linejoin: round;
 }
 
-.paste-button span {
+.contextual-paste-button span {
   font-size: 12px;
+  font-weight: 750;
 }
 
-.paste-button:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-  pointer-events: none;
+@keyframes contextual-paste-in {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
-/* Applied to <body> only while an active marquee drag is in progress, so
-   dragging a large selection rectangle never highlights page text (toolbox
-   labels, output text, etc). Removed again on pointerup/pointercancel. */
-body.marquee-no-select {
-  user-select: none;
-  -webkit-user-select: none;
+/* Off-screen node used only as a native drag-image snapshot for a group
+   move (see setGroupDragImage) — never shown as part of the normal layout. */
+.group-drag-badge {
+  position: fixed;
+  top: -1000px;
+  left: -1000px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: #0f172a;
+  color: #e5e7eb;
+  font-family: Inter, Arial, sans-serif;
+  font-size: 12px;
+  font-weight: 750;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+  white-space: nowrap;
 }
 
