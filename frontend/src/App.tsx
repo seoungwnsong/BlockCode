@@ -1659,7 +1659,7 @@ function App() {
     }
 
     try {
-      const response = await fetch("http://localhost:3000/check-flow", {
+      const response = await fetch("https://blockcode-zjnz.onrender.com/check-flow", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(programJson),
